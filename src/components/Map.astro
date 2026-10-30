@@ -1,7 +1,6 @@
 ---
 import { CAMPAIGN } from '@/data/campaign'
-import Surface from '@/components/ui/Surface.astro'
-import Badge from '@/components/ui/Badge.astro'
+import { RETAILERS } from '@/data/stores'
 
 interface Props {
   edition?: number
@@ -18,22 +17,9 @@ const hasUserLocation =
   Math.abs(longitude) <= 180
 const centerLat = hasUserLocation ? latitude : 41.390205
 const centerLon = hasUserLocation ? longitude : 2.154007
-const retailers = [
-  { name: 'Eroski', color: '#fb923c' },
-  { name: 'El Corte Inglés', color: '#34d399' },
-  { name: 'Carrefour', color: '#7aa7ff' },
-  { name: 'Alcampo', color: '#fb7185' },
-]
 ---
 
-<Surface as="section" class="store-locator" aria-labelledby="map-title">
-  <div class="locator-heading">
-    <div>
-      <h3 id="map-title">Encuentra tu tienda</h3>
-      <p>Acércate en el mapa y selecciona un punto para ver la dirección.</p>
-    </div>
-    <Badge class="locator-edition">Edición {edition}</Badge>
-  </div>
+<div class="store-locator">
   <div class="map-stage">
     <div
       id="map"
@@ -51,14 +37,14 @@ const retailers = [
   </div>
   <div class="locator-footer">
     <ul class="retailer-legend" aria-label="Supermercados y colores de sus marcadores">
-      {retailers.map(({ name, color }) => (
+      {RETAILERS.map(({ name, color }) => (
         <li>
           <span style={{ backgroundColor: color }} aria-hidden="true"></span>
           {name}
         </li>
       ))}
     </ul>
-    <p id="map-help">Los números agrupan tiendas cercanas.</p>
+    <p id="map-help">Selecciona un punto para ver la dirección. Los números agrupan tiendas cercanas.</p>
   </div>
   {edition !== CAMPAIGN.year && (
     <p class="locator-note">
@@ -66,55 +52,42 @@ const retailers = [
       próximamente.
     </p>
   )}
-</Surface>
-
-<!-- Leaflet CSS -->
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-  crossorigin=""
-/>
-
-<!-- MapLibre GL, para el fondo vectorial de OpenFreeMap (sin API key) -->
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
-  integrity="sha256-V2sIX92Uh6ZaGSFTKMHghsB85b9toJtmazgG09AI2uk="
-  crossorigin=""
-/>
-
-<!-- Leaflet JS -->
-<script
-  is:inline
-  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-  crossorigin=""
-></script>
-
-<script
-  is:inline
-  src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"
-  integrity="sha256-vpYzxNhw4m+zfxz+XFp3GBZnEUAD6hYgeseFDY2ordE="
-  crossorigin=""
-></script>
-<script
-  is:inline
-  src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"
-  integrity="sha256-Hmz4yz61/ZCYeaob82o4P7UGyaWy27+rq85lopTdH8s="
-  crossorigin=""
-></script>
-
-<!-- Supercluster: índice espacial. Solo se crean marcadores para lo que está en pantalla. -->
-<script
-  is:inline
-  src="https://unpkg.com/supercluster@8.0.1/dist/supercluster.min.js"
-  integrity="sha256-WYH7OWQn2QUK5DCjUNPmF1szrNa7FSNxP6RXtco0EdQ="
-  crossorigin=""
-></script>
+</div>
 
 <script>
-  const L = window.L
+  import { COORDINATE_SCALE, DETAILS_PER_FILE, RETAILERS, type StoreDetails } from '@/data/stores'
+
+  // Se descargan cuando el mapa se acerca a la pantalla. async = false mantiene el orden de ejecución
+  const MAP_STYLESHEETS = [
+    [
+      'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+      'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=',
+    ],
+    [
+      'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
+      'sha256-V2sIX92Uh6ZaGSFTKMHghsB85b9toJtmazgG09AI2uk=',
+    ],
+  ]
+  const MAP_SCRIPTS = [
+    [
+      'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+      'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=',
+    ],
+    [
+      'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js',
+      'sha256-vpYzxNhw4m+zfxz+XFp3GBZnEUAD6hYgeseFDY2ordE=',
+    ],
+    [
+      'https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js',
+      'sha256-Hmz4yz61/ZCYeaob82o4P7UGyaWy27+rq85lopTdH8s=',
+    ],
+    [
+      'https://unpkg.com/supercluster@8.0.1/dist/supercluster.min.js',
+      'sha256-WYH7OWQn2QUK5DCjUNPmF1szrNa7FSNxP6RXtco0EdQ=',
+    ],
+  ]
+
+  let L: any
 
   // Variables globales que se inicializan solo si el mapa existe
   let $map: HTMLDivElement | null = null
@@ -123,53 +96,37 @@ const retailers = [
   let initialZoom: string | undefined
   let hasUserLocation = false
 
-  // Diccionario de retail
-  const retailDictionary: Record<string, string> = {
-    A: 'Eroski',
-    B: 'El Corte Inglés',
-    C: 'Carrefour',
-    D: 'Alcampo',
-  } as const
-
-  const colors: Record<string, string> = {
-    A: '#fb923c',
-    B: '#34d399',
-    C: '#7aa7ff',
-    D: '#fb7185',
-  }
-
-  function getColorForRetail(retail: string): string {
-    return colors[retail] || '#b1c3dd'
-  }
-
-  // Función para obtener el nombre del retail
-  function getRetailName(retail: string): string {
-    return retailDictionary[retail] || retail
-  }
-
   type Store = {
     lat: number
     lon: number
-    ciudad?: string
-    provincia?: string
-    direccion?: string
-    retail: string
+    retail: number
   }
 
   // Radio en píxeles de pantalla. extent 256 alinea el cálculo con las teselas de Leaflet.
   const CLUSTER_RADIUS = 60
   const CLUSTER_MAX_ZOOM = 19
-  const POPUP_OPTIONS = { maxWidth: 300, className: 'custom-popup' }
+  const POPUP_OPTIONS = {
+    maxWidth: 300,
+    className: 'custom-popup',
+    autoPanPaddingTopLeft: [16, 130],
+    autoPanPaddingBottomRight: [16, 100],
+  }
 
-  let locations: Store[] = []
+  let stores: Store[] = []
   let clusterIndex: any = null
-  let locationsPromise: Promise<Store[]> | null = null
+  let storesPromise: Promise<Store[]> | null = null
+  let librariesPromise: Promise<void> | null = null
+  let visibilityObserver: IntersectionObserver | null = null
   let activeMap: any = null
   let generation = 0
   let scheduledFrame = 0
 
-  const storeIcons = new Map<string, any>()
+  const storeIcons = new Map<number, any>()
   const clusterIcons = new Map<number, any>()
+  const detailFiles = import.meta.glob<StoreDetails[]>('../data/stores/details/*.json', {
+    import: 'default',
+  })
+  const detailBlocks = new Map<number, Promise<StoreDetails[]>>()
 
   function escapeHtml(value: string): string {
     return value
@@ -179,36 +136,57 @@ const retailers = [
       .replace(/"/g, '&quot;')
   }
 
-  function storePopupHtml(location: Store): string {
-    const retailName = escapeHtml(getRetailName(location.retail))
-    const address = escapeHtml(location.direccion || 'Consulta la dirección en el mapa')
-    const place = [location.ciudad, location.provincia]
-      .filter(Boolean)
-      .filter((value, index, values) => values.indexOf(value) === index)
-      .map((value) => escapeHtml(value!))
-      .join(', ')
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${location.lat},${location.lon}`)}`
+  function storePopupHtml(storeIndex: number, details?: StoreDetails): string {
+    const store = stores[storeIndex]
+    const retailer = RETAILERS[store.retail]
+    const [address, place] = details ?? []
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${store.lat},${store.lon}`)}`
 
     return `<div class="store-popup">
-      <p class="store-popup-name"><span style="background:${getColorForRetail(location.retail)}" aria-hidden="true"></span>${retailName}</p>
-      <p class="store-popup-address">${address}</p>
-      ${place ? `<p class="store-popup-place">${place}</p>` : ''}
+      <p class="store-popup-name"><span style="background:${retailer.color}" aria-hidden="true"></span>${escapeHtml(retailer.name)}</p>
+      <p class="store-popup-address">${details ? escapeHtml(address || 'Consulta la dirección en el mapa') : 'Cargando dirección…'}</p>
+      ${place ? `<p class="store-popup-place">${escapeHtml(place)}</p>` : ''}
       <a class="store-popup-directions" href="${mapsUrl}" target="_blank" rel="noopener noreferrer">Cómo llegar<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10" /></svg></a>
     </div>`
   }
 
-  function storeIcon(retail: string) {
-    const key = colors[retail] ? retail : 'default'
-    const cached = storeIcons.get(key)
+  function loadStoreDetails(storeIndex: number): Promise<StoreDetails> {
+    const block = Math.floor(storeIndex / DETAILS_PER_FILE)
+    let details = detailBlocks.get(block)
+    if (!details) {
+      details = detailFiles[`../data/stores/details/${block}.json`]()
+      details.catch(() => detailBlocks.delete(block))
+      detailBlocks.set(block, details)
+    }
+    return details.then((blockDetails) => blockDetails[storeIndex % DETAILS_PER_FILE])
+  }
+
+  // La dirección se pide al abrir el popup; mientras llega se muestra lo que ya traen los puntos
+  function bindStoresPopup(marker: any, storeIndices: number[], footer = '') {
+    const render = (details?: StoreDetails[]) =>
+      storeIndices
+        .map((storeIndex, n) => storePopupHtml(storeIndex, details?.[n]))
+        .join('<hr class="store-popup-divider">') + footer
+
+    marker.bindPopup(() => render(), POPUP_OPTIONS)
+    marker.on('popupopen', () => {
+      Promise.all(storeIndices.map(loadStoreDetails))
+        .catch(() => storeIndices.map((): StoreDetails => ['', '']))
+        .then((details) => marker.setPopupContent(render(details)))
+    })
+  }
+
+  function storeIcon(retail: number) {
+    const cached = storeIcons.get(retail)
     if (cached) return cached
     const icon = L.divIcon({
-      html: `<span class="store-dot" style="--store-color:${getColorForRetail(retail)}"></span>`,
+      html: `<span class="store-dot" style="--store-color:${RETAILERS[retail].color}"></span>`,
       iconSize: [28, 28],
       iconAnchor: [14, 14],
       popupAnchor: [0, -13],
       className: 'store-marker',
     })
-    storeIcons.set(key, icon)
+    storeIcons.set(retail, icon)
     return icon
   }
 
@@ -281,23 +259,52 @@ const retailers = [
     return mapStylePromise
   }
 
-  function loadLocations(): Promise<Store[]> {
-    if (!locationsPromise) {
-      locationsPromise = fetch('/api/locations')
-        .then((response) => {
-          if (!response.ok) throw new Error('No se pudieron cargar las tiendas')
-          return response.json()
-        })
-        .then((data) => {
-          if (!Array.isArray(data)) throw new Error('Formato de tiendas no válido')
-          return data as Store[]
-        })
-        .catch((error) => {
-          locationsPromise = null
-          throw error
-        })
-    }
-    return locationsPromise
+  function loadResource(tag: 'link' | 'script', attributes: Record<string, string | boolean>) {
+    return new Promise((resolve, reject) => {
+      const element = Object.assign(document.createElement(tag), attributes, {
+        crossOrigin: '',
+        onload: resolve,
+        onerror: () => reject(new Error(`No se pudo cargar ${attributes.href ?? attributes.src}`)),
+      })
+      document.head.append(element)
+    })
+  }
+
+  function loadLibraries() {
+    librariesPromise ??= Promise.all([
+      ...MAP_STYLESHEETS.map(([href, integrity]) =>
+        loadResource('link', { rel: 'stylesheet', href, integrity })
+      ),
+      ...MAP_SCRIPTS.map(([src, integrity]) => loadResource('script', { src, integrity, async: false })),
+    ]).then(() => {
+      L = window.L
+    })
+    return librariesPromise
+  }
+
+  // points.json: [Δlat, Δlon, cadena, …] con las coordenadas en enteros
+  function loadStores(): Promise<Store[]> {
+    storesPromise ??= import('@/data/stores/points.json')
+      .then(({ default: points }) => {
+        const decoded: Store[] = []
+        let lat = 0
+        let lon = 0
+        for (let i = 0; i < points.length; i += 3) {
+          lat += points[i]
+          lon += points[i + 1]
+          decoded.push({
+            lat: lat / COORDINATE_SCALE,
+            lon: lon / COORDINATE_SCALE,
+            retail: points[i + 2],
+          })
+        }
+        return decoded
+      })
+      .catch((error) => {
+        storesPromise = null
+        throw error
+      })
+    return storesPromise
   }
 
   function ensureClusterIndex() {
@@ -305,18 +312,11 @@ const retailers = [
     const Supercluster = window.Supercluster
     if (!Supercluster) throw new Error('Supercluster no está disponible')
 
-    const points = []
-    for (let i = 0; i < locations.length; i++) {
-      const location = locations[i]
-      const lat = Number(location.lat)
-      const lon = Number(location.lon)
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
-      points.push({
-        type: 'Feature',
-        properties: { i },
-        geometry: { type: 'Point', coordinates: [lon, lat] },
-      })
-    }
+    const points = stores.map((store, i) => ({
+      type: 'Feature',
+      properties: { i },
+      geometry: { type: 'Point', coordinates: [store.lon, store.lat] },
+    }))
 
     clusterIndex = new Supercluster({
       radius: CLUSTER_RADIUS,
@@ -340,7 +340,10 @@ const retailers = [
     }
   }
 
-  document.addEventListener('astro:before-swap', destroyMap)
+  document.addEventListener('astro:before-swap', () => {
+    visibilityObserver?.disconnect()
+    destroyMap()
+  })
 
   document.addEventListener('astro:page-load', () => {
     const container = document.querySelector<HTMLDivElement>('#map')
@@ -370,18 +373,29 @@ const retailers = [
       hasUserLocation = container.dataset.hasUserLocation === 'true'
 
       // El mapa cerrado no solicita las tiendas ni crea una superficie de tamaño cero.
-      loadLocations().catch(() => {})
+      loadStores().catch(() => {})
       initMap(container)
     }
 
     details?.addEventListener('toggle', initialize)
-    initialize()
+    visibilityObserver = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        visibilityObserver?.disconnect()
+        initialize()
+      },
+      { rootMargin: '600px 0px' }
+    )
+    visibilityObserver.observe(container)
   })
 
   async function initMap(container: HTMLDivElement) {
     const gen = ++generation
 
     try {
+      await loadLibraries()
+      if (gen !== generation || !container.isConnected) return
+
       const lat = Number(centerLat)
       const lon = Number(centerLon)
       const zoom = Number(initialZoom)
@@ -419,27 +433,22 @@ const retailers = [
           .bindPopup('Zona aproximada por IP', { className: 'store-location-popup' })
       }
 
-      locations = await loadLocations()
+      stores = await loadStores()
       if (gen !== generation || activeMap !== map) return
 
       const index = ensureClusterIndex()
       const layer = L.layerGroup().addTo(map)
       const visible = new Map<string, any>()
 
-      const popupOptions = POPUP_OPTIONS
-
-      function openClusterPopup(marker: any, clusterId: number, total: number) {
-        const leaves = index.getLeaves(clusterId, 12)
-        const cards = leaves
-          .map((leaf: { properties: { i: number } }) =>
-            storePopupHtml(locations[leaf.properties.i])
-          )
-          .join('<hr class="store-popup-divider">')
+      function bindClusterPopup(marker: any, clusterId: number, total: number) {
+        const leaves = index
+          .getLeaves(clusterId, 12)
+          .map((leaf: { properties: { i: number } }) => leaf.properties.i)
         const more =
           total > leaves.length
             ? `<p class="store-popup-more">Y ${total - leaves.length} tiendas más en este punto.</p>`
             : ''
-        marker.bindPopup(cards + more, popupOptions).openPopup()
+        bindStoresPopup(marker, leaves, more)
       }
 
       function renderViewport() {
@@ -479,8 +488,8 @@ const retailers = [
                 title: `${props.point_count} tiendas. Acercar el mapa.`,
               })
             : L.marker([featureLat, featureLon], {
-                icon: storeIcon(locations[props.i].retail),
-                title: `${getRetailName(locations[props.i].retail)}: ${locations[props.i].direccion || 'Ver tienda'}`,
+                icon: storeIcon(stores[props.i].retail),
+                title: `Tienda ${RETAILERS[stores[props.i].retail].name}`,
               })
           marker.on('add', () => {
             marker.getElement()?.setAttribute('aria-label', marker.options.title)
@@ -488,20 +497,18 @@ const retailers = [
 
           if (isCluster) {
             const clusterId = props.cluster_id
-            const count = props.point_count
-            marker.on('click', () => {
-              const nextZoom = index.getClusterExpansionZoom(clusterId)
-              if (nextZoom > map.getZoom() && map.getZoom() < map.getMaxZoom()) {
-                map.flyTo([featureLat, featureLon], Math.min(nextZoom, map.getMaxZoom()), {
+            const nextZoom = index.getClusterExpansionZoom(clusterId)
+            if (nextZoom > zoomLevel && zoomLevel < CLUSTER_MAX_ZOOM) {
+              marker.on('click', () => {
+                map.flyTo([featureLat, featureLon], Math.min(nextZoom, CLUSTER_MAX_ZOOM), {
                   animate: !matchMedia('(prefers-reduced-motion: reduce)').matches,
                 })
-                return
-              }
-              openClusterPopup(marker, clusterId, count)
-            })
+              })
+            } else {
+              bindClusterPopup(marker, clusterId, props.point_count)
+            }
           } else {
-            const storeIndex = props.i
-            marker.bindPopup(() => storePopupHtml(locations[storeIndex]), popupOptions)
+            bindStoresPopup(marker, [props.i])
           }
 
           marker.addTo(layer)
@@ -544,53 +551,35 @@ const retailers = [
 
 <style>
   .store-locator {
-    overflow: hidden;
+    --map-fade-top: 130px;
+    --map-fade-bottom: 90px;
+    container-type: inline-size;
     color: var(--text-heading);
     font-family: var(--font-body);
   }
-  .locator-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 24px;
-    padding: 25px 28px;
-  }
-  .locator-heading h3 {
-    margin: 0;
-    color: var(--text-heading);
-    font-size: 17px;
-    font-weight: bold;
-    line-height: 1.4;
-  }
-  .locator-heading p {
-    margin-top: 6px;
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 1.8;
-  }
-  .locator-edition {
-    flex-shrink: 0;
-    padding: 6px 10px;
-    border: 1px solid color-mix(in srgb, var(--text-muted) 18.04%, transparent);
-    border-radius: 6px;
-    color: var(--text-muted);
-    font-size: 10px;
-    white-space: nowrap;
-  }
   .map-stage {
     position: relative;
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--map-fade-top),
+      #000 calc(100% - var(--map-fade-bottom)),
+      transparent
+    );
   }
   #map {
     width: 100%;
-    height: 450px;
-    border-block: 1px solid color-mix(in srgb, var(--text-muted) 18.04%, transparent);
+    height: 620px;
     background: var(--map-land);
   }
   .map-status {
     position: absolute;
-    top: 16px;
-    left: 16px;
+    top: 50%;
+    left: 50%;
     z-index: 500;
+    translate: -50% -50%;
     max-width: calc(100% - 32px);
     padding: 10px 14px;
     border: 1px solid color-mix(in srgb, var(--text-muted) 25.1%, transparent);
@@ -606,7 +595,7 @@ const retailers = [
     align-items: center;
     flex-wrap: wrap;
     gap: 18px;
-    padding: 21px 28px;
+    padding-top: 8px;
   }
   .retailer-legend {
     display: flex;
@@ -636,15 +625,19 @@ const retailers = [
     line-height: 1.7;
   }
   .locator-note {
-    margin: 0 28px;
-    padding: 15px 0 18px;
-    border-top: 1px solid color-mix(in srgb, var(--text-muted) 12.16%, transparent);
+    margin-top: 15px;
     color: var(--text-muted);
     font-size: 10px;
     line-height: 1.8;
   }
+  :global(#map .leaflet-right) {
+    right: max(0px, 50vw - 50cqi);
+  }
+  :global(#map .leaflet-bottom) {
+    bottom: var(--map-fade-bottom);
+  }
   :global(#map .leaflet-control-zoom) {
-    margin: 0 16px 22px 0;
+    margin: 0 0 12px;
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--text-muted) 34.9%, transparent);
     border-radius: 8px;
@@ -827,30 +820,14 @@ const retailers = [
   }
   @media (max-width: 760px) {
     .store-locator {
-      border-radius: 12px;
-    }
-    .locator-heading {
-      align-items: start;
-      gap: 12px;
-      padding: 20px;
-    }
-    .locator-heading h3 {
-      font-size: 15px;
-    }
-    .locator-heading p {
-      max-width: 220px;
-      font-size: 10px;
-    }
-    .locator-edition {
-      padding: 5px 7px;
-      font-size: 8px;
+      --map-fade-top: 90px;
+      --map-fade-bottom: 70px;
     }
     #map {
-      height: 360px;
+      height: 480px;
     }
     .locator-footer {
       display: block;
-      padding: 19px 20px;
     }
     .retailer-legend {
       display: grid;
@@ -865,12 +842,7 @@ const retailers = [
       font-size: 9px;
     }
     .locator-note {
-      margin-inline: 20px;
-      padding-block: 14px 17px;
       font-size: 9px;
-    }
-    :global(#map .leaflet-control-zoom) {
-      margin-right: 12px;
     }
     :global(#map .leaflet-control-attribution) {
       font-size: 8px;

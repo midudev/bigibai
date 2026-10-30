@@ -8,7 +8,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "deploy": "astro build && wrangler deploy"
+    "deploy": "astro build && wrangler deploy",
+    "stores": "bun scripts/stores.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "14.4.0",
