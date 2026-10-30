@@ -1,0 +1,381 @@
+---
+import { reel } from '@/data/reel'
+
+interface Props {
+  interactive?: boolean
+}
+const { interactive = false } = Astro.props
+const Link = interactive ? 'a' : 'span'
+const profileLink = interactive
+  ? { href: reel.profileUrl, target: '_blank', rel: 'noopener noreferrer' }
+  : {}
+const compact = new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 })
+const full = new Intl.NumberFormat('es-ES')
+---
+
+<div class="reel-phone" aria-hidden={interactive ? undefined : 'true'}>
+  {interactive ? (
+    <video
+      src={reel.video}
+      poster={reel.poster}
+      preload="none"
+      loop
+      playsinline
+      disablepictureinpicture
+      aria-label={`Reel de Ibai: ${reel.caption}`}
+    />
+  ) : (
+    <img src={reel.poster} width="720" height="1280" alt="" decoding="async" />
+  )}
+  <span class="reel-shade"></span>
+
+  {interactive && (
+    <button class="reel-toggle" type="button" data-reel-toggle aria-label="Pausar el reel"></button>
+  )}
+  <svg class="reel-play" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z"></path>
+  </svg>
+
+  <span class="reel-title">Reels</span>
+  {interactive && (
+    <button class="reel-mute" type="button" data-reel-mute aria-label="Silenciar el reel">
+      <svg class="icon-muted" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9h3.5L12 5v14l-4.5-4H4Z" fill="currentColor" />
+        <path d="m16 9.5 5 5m0-5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </svg>
+      <svg class="icon-sound" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9h3.5L12 5v14l-4.5-4H4Z" fill="currentColor" />
+        <path
+          d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
+  )}
+
+  <ul class="reel-actions">
+    <li>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M12 20.5s-8.5-5-8.5-11.1A4.9 4.9 0 0 1 12 6.6a4.9 4.9 0 0 1 8.5 2.8c0 6.1-8.5 11.1-8.5 11.1Z"
+        ></path>
+      </svg>
+      <span aria-hidden="true">{compact.format(reel.likes)}</span>
+      <span class="sr-only">{full.format(reel.likes)} me gusta</span>
+    </li>
+    <li>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20.6 17.5A9.2 9.2 0 1 0 17 20.9l4 1.1Z"></path>
+      </svg>
+      <span aria-hidden="true">{full.format(reel.comments)}</span>
+      <span class="sr-only">{full.format(reel.comments)} comentarios</span>
+    </li>
+    <li aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <path d="M18 4l3 3-3 3M21 7H8a4 4 0 0 0-4 4v1M6 20l-3-3 3-3M3 17h13a4 4 0 0 0 4-4v-1"
+        ></path>
+      </svg>
+    </li>
+    <li aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <path d="M22 3 9.2 10.1M22 3l-6.8 18-4.3-9.2L2.3 8.4Z"></path>
+      </svg>
+    </li>
+    <li aria-hidden="true">
+      <svg viewBox="0 0 24 24" class="reel-more">
+        <circle cx="5" cy="12" r="1.6"></circle>
+        <circle cx="12" cy="12" r="1.6"></circle>
+        <circle cx="19" cy="12" r="1.6"></circle>
+      </svg>
+    </li>
+    <li aria-hidden="true">
+      <img class="reel-audio-cover" src={reel.avatar} width="160" height="160" alt="" />
+    </li>
+  </ul>
+
+  <div class="reel-meta">
+    <div class="reel-author">
+      <Link class="reel-profile" {...profileLink}>
+        <img src={reel.avatar} width="160" height="160" alt="" />
+        <strong>{reel.username}</strong>
+        <svg class="reel-verified" viewBox="0 0 24 24" role="img" aria-label="Cuenta verificada">
+          <path
+            d="m12 1.5 2.6 2 3.2-.4 1.2 3 3 1.2-.4 3.2 2 2.6-2 2.6.4 3.2-3 1.2-1.2 3-3.2-.4-2.6 2-2.6-2-3.2.4-1.2-3-3-1.2.4-3.2-2-2.6 2-2.6-.4-3.2 3-1.2 1.2-3 3.2.4Z"
+            fill="#0095f6"></path>
+          <path
+            d="m7.8 12.2 2.8 2.8 5.6-6"
+            fill="none"
+            stroke="#fff"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"></path>
+        </svg>
+      </Link>
+      <Link class="reel-follow" {...profileLink}>Seguir</Link>
+    </div>
+    <p class="reel-caption">{reel.caption}</p>
+    <p class="reel-audio">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2"></path>
+        <circle cx="6" cy="18" r="3" fill="currentColor"></circle>
+        <circle cx="17" cy="16" r="3" fill="currentColor"></circle>
+      </svg>
+      {reel.username} · Audio original
+    </p>
+  </div>
+
+  {interactive && (
+    <span class="reel-progress" aria-hidden="true">
+      <span data-reel-progress></span>
+    </span>
+  )}
+</div>
+
+<style>
+  /* Interfaz de Reels de Instagram. Todo va en em para escalar con --phone-width (13px a 340px) */
+  .reel-phone {
+    --phone-width: 340px;
+    position: relative;
+    width: var(--phone-width);
+    aspect-ratio: 9 / 16;
+    border: 1px solid #ffffff29;
+    border-radius: 2em;
+    overflow: hidden;
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: calc(var(--phone-width) * 0.0382);
+    line-height: 1.35;
+    text-align: left;
+    box-shadow:
+      0 0 0 0.54em #050d1f,
+      0 0 0 0.62em #ffffff1f,
+      0 3em 5.4em #000a;
+  }
+  .reel-phone > video,
+  .reel-phone > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .reel-shade {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(#0006, transparent 16%),
+      linear-gradient(transparent 58%, #000b);
+    pointer-events: none;
+  }
+  .reel-toggle {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    cursor: pointer;
+  }
+  .reel-toggle:focus-visible {
+    outline: 3px solid var(--brand-accent);
+    outline-offset: -3px;
+    border-radius: 2em;
+  }
+  .reel-play {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4.9em;
+    height: 4.9em;
+    margin: -2.45em 0 0 -2.45em;
+    fill: #fffe;
+    filter: drop-shadow(0 0.3em 1em #0007);
+    pointer-events: none;
+    transition:
+      opacity 0.2s,
+      scale 0.2s;
+  }
+  :global([data-playing='true']) .reel-play {
+    opacity: 0;
+    scale: 0.8;
+  }
+  .reel-title {
+    position: absolute;
+    top: 1.23em;
+    left: 1.23em;
+    font-size: 1.46em;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    pointer-events: none;
+  }
+  .reel-mute {
+    position: absolute;
+    top: 1.08em;
+    right: 1.08em;
+    display: grid;
+    place-items: center;
+    width: 2.46em;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #2a2a2acc;
+    color: #fff;
+    cursor: pointer;
+  }
+  .reel-mute svg {
+    width: 1.23em;
+    height: 1.23em;
+  }
+  :global([data-muted='true']) .icon-sound,
+  :global([data-muted='false']) .icon-muted {
+    display: none;
+  }
+  .reel-mute:focus-visible,
+  .reel-meta a:focus-visible {
+    outline: 2px solid var(--brand-accent);
+    outline-offset: 2px;
+  }
+
+  .reel-actions {
+    position: absolute;
+    right: 0.77em;
+    bottom: 1.7em;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.23em;
+    padding: 0;
+    list-style: none;
+    pointer-events: none;
+  }
+  .reel-actions li {
+    display: grid;
+    justify-items: center;
+    gap: 0.23em;
+    font-size: 0.92em;
+    font-weight: 600;
+    text-shadow: 0 1px 2px #0008;
+  }
+  .reel-actions svg {
+    width: 2.25em;
+    height: 2.25em;
+    fill: none;
+    stroke: #fff;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 1px 2px #0006);
+  }
+  .reel-actions .reel-more {
+    fill: #fff;
+    stroke: none;
+  }
+  .reel-audio-cover {
+    width: 2.33em;
+    height: 2.33em;
+    border: 0.17em solid #fff;
+    border-radius: 0.58em;
+    object-fit: cover;
+  }
+
+  .reel-meta {
+    position: absolute;
+    left: 1.08em;
+    right: 4.77em;
+    bottom: 1.7em;
+    display: grid;
+    gap: 0.7em;
+    text-shadow: 0 1px 2px #0008;
+    pointer-events: none;
+  }
+  .reel-meta a {
+    pointer-events: auto;
+  }
+  .reel-author {
+    display: flex;
+    align-items: center;
+    gap: 0.77em;
+  }
+  .reel-profile {
+    display: flex;
+    align-items: center;
+    gap: 0.62em;
+    min-width: 0;
+  }
+  .reel-profile img {
+    flex-shrink: 0;
+    width: 2.46em;
+    height: 2.46em;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  .reel-profile strong {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .reel-verified {
+    flex-shrink: 0;
+    width: 1em;
+    height: 1em;
+    margin-left: -0.23em;
+  }
+  .reel-follow {
+    flex-shrink: 0;
+    padding: 0.31em 0.77em;
+    border: 1px solid #ffffffb3;
+    border-radius: 0.62em;
+    font-size: 0.92em;
+    font-weight: 600;
+    text-shadow: none;
+  }
+  a.reel-follow:hover {
+    background: #ffffff26;
+  }
+  .reel-caption {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .reel-audio {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    width: fit-content;
+    max-width: 100%;
+    padding: 0.33em 0.83em;
+    border-radius: 999px;
+    background: #ffffff26;
+    font-size: 0.92em;
+    white-space: nowrap;
+    text-shadow: none;
+  }
+  .reel-audio svg {
+    width: 1em;
+    height: 1em;
+  }
+  .reel-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 0.23em;
+    background: #ffffff33;
+    pointer-events: none;
+  }
+  .reel-progress span {
+    display: block;
+    height: 100%;
+    background: #fff;
+    transform: scaleX(var(--progress, 0));
+    transform-origin: left;
+    transition: transform 0.25s linear;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reel-progress span,
+    .reel-play {
+      transition: none;
+    }
+  }
+</style>

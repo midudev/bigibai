@@ -1,0 +1,263 @@
+---
+import ReelPhone from './ReelPhone.astro'
+---
+
+<ibai-reel class="ibai-reel">
+  <div class="reel-teaser">
+    <ReelPhone />
+    <button
+      class="reel-open"
+      type="button"
+      aria-haspopup="dialog"
+      aria-label="Ver el reel de Ibai con sonido"></button>
+  </div>
+  <dialog class="reel-dialog" aria-label="Reel de Ibai" data-playing="false" data-muted="false">
+    <button class="reel-close" type="button" aria-label="Cerrar el reel">
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+        ></path>
+      </svg>
+    </button>
+    <ReelPhone interactive />
+  </dialog>
+</ibai-reel>
+
+<script>
+  class IbaiReel extends HTMLElement {
+    private controller?: AbortController
+
+    connectedCallback() {
+      this.controller?.abort()
+      this.controller = new AbortController()
+      const { signal } = this.controller
+      const teaser = this.querySelector<HTMLElement>('.reel-teaser')!
+      const openButton = teaser.querySelector<HTMLButtonElement>('.reel-open')!
+      const dialog = this.querySelector('dialog')!
+      const phone = dialog.querySelector<HTMLElement>('.reel-phone')!
+      const video = dialog.querySelector('video')!
+      const toggle = dialog.querySelector<HTMLButtonElement>('[data-reel-toggle]')!
+      const mute = dialog.querySelector<HTMLButtonElement>('[data-reel-mute]')!
+      const progress = dialog.querySelector<HTMLElement>('[data-reel-progress]')!
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+      let closing = false
+
+      // El móvil del dialog sale desde la miniatura del hero y vuelve a ella al cerrarse
+      const morph = (direction: 'open' | 'close') => {
+        const from = teaser.getBoundingClientRect()
+        const to = phone.getBoundingClientRect()
+        const { rotate, scale } = getComputedStyle(teaser)
+        const teaserScale = scale === 'none' ? 1 : Number(scale)
+        const collapsed = `translate(${from.left + from.width / 2 - (to.left + to.width / 2)}px, ${
+          from.top + from.height / 2 - (to.top + to.height / 2)
+        }px) rotate(${rotate === 'none' ? '0deg' : rotate}) scale(${
+          (teaser.offsetWidth * teaserScale) / phone.offsetWidth
+        })`
+        const keyframes = [{ transform: collapsed }, { transform: 'none' }]
+        if (direction === 'close') keyframes.reverse()
+        return phone.animate(keyframes, {
+          duration: direction === 'open' ? 560 : 420,
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          fill: 'forwards',
+        })
+      }
+
+      const sync = () => {
+        dialog.dataset.playing = String(!video.paused)
+        dialog.dataset.muted = String(video.muted)
+        toggle.setAttribute('aria-label', video.paused ? 'Reproducir el reel' : 'Pausar el reel')
+        mute.setAttribute('aria-label', video.muted ? 'Activar el sonido' : 'Silenciar el reel')
+      }
+
+      const open = () => {
+        dialog.showModal()
+        video.muted = false
+        video.play().catch(() => {
+          video.muted = true
+          video.play().catch(sync)
+        })
+        teaser.style.visibility = 'hidden'
+        if (!reducedMotion.matches) morph('open').finished.then((animation) => animation.cancel())
+      }
+
+      const close = async () => {
+        if (closing || !dialog.open) return
+        closing = true
+        video.pause()
+        dialog.classList.add('is-closing')
+        const animation = reducedMotion.matches ? null : morph('close')
+        await animation?.finished.catch(() => {})
+        dialog.close()
+        animation?.cancel()
+        dialog.classList.remove('is-closing')
+        teaser.style.visibility = ''
+        openButton.focus({ preventScroll: true })
+        closing = false
+      }
+
+      openButton.addEventListener('click', open, { signal })
+      dialog.querySelector('.reel-close')!.addEventListener('click', close, { signal })
+      dialog.addEventListener(
+        'cancel',
+        (event) => {
+          event.preventDefault()
+          close()
+        },
+        { signal }
+      )
+      dialog.addEventListener(
+        'click',
+        (event) => {
+          if (event.target === dialog) close()
+        },
+        { signal }
+      )
+      toggle.addEventListener(
+        'click',
+        () => (video.paused ? video.play().catch(sync) : video.pause()),
+        { signal }
+      )
+      mute.addEventListener('click', () => (video.muted = !video.muted), { signal })
+      for (const type of ['play', 'pause', 'volumechange']) {
+        video.addEventListener(type, sync, { signal })
+      }
+      video.addEventListener(
+        'timeupdate',
+        () => progress.style.setProperty('--progress', String(video.currentTime / video.duration || 0)),
+        { signal }
+      )
+      signal.addEventListener('abort', () => dialog.open && dialog.close(), { once: true })
+      sync()
+    }
+
+    disconnectedCallback() {
+      this.controller?.abort()
+    }
+  }
+
+  if (!customElements.get('ibai-reel')) customElements.define('ibai-reel', IbaiReel)
+</script>
+
+<style>
+  .ibai-reel {
+    position: absolute;
+    z-index: 3;
+    right: 18px;
+    bottom: 52px;
+    transition:
+      opacity 0.3s ease,
+      translate 0.45s ease,
+      scale 0.45s ease;
+  }
+  .reel-teaser {
+    --phone-width: 150px;
+    position: relative;
+    rotate: 7deg;
+    transition:
+      rotate 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+      scale 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .reel-teaser :global(.reel-phone) {
+    --phone-width: inherit;
+  }
+  .reel-open {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .reel-open:focus-visible {
+    outline: 3px solid var(--brand-accent);
+    outline-offset: 8px;
+  }
+  @media (hover: hover) {
+    .reel-teaser:hover {
+      rotate: 3deg;
+      scale: 1.05;
+    }
+  }
+
+  .reel-dialog {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    overflow: hidden;
+  }
+  .reel-dialog[open] {
+    display: grid;
+    place-items: center;
+  }
+  .reel-dialog :global(.reel-phone) {
+    --phone-width: min(calc(86dvh * 9 / 16), calc(100vw - 48px), 440px);
+  }
+  .reel-dialog::backdrop {
+    background: #040b1fc2;
+    backdrop-filter: blur(14px) saturate(0.85);
+  }
+  .reel-dialog[open]::backdrop,
+  .reel-dialog[open] .reel-close {
+    animation: reel-fade-in 0.45s ease both;
+  }
+  .reel-dialog.is-closing::backdrop,
+  .reel-dialog.is-closing .reel-close {
+    animation: reel-fade-out 0.42s ease both;
+  }
+  .reel-close {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 46px;
+    aspect-ratio: 1;
+    border: 1px solid #ffffff33;
+    border-radius: 50%;
+    background: #ffffff14;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .reel-close:hover {
+    background: #ffffff2e;
+  }
+  .reel-close:focus-visible {
+    outline: 3px solid var(--brand-accent);
+    outline-offset: 3px;
+  }
+  :global(html:has(.reel-dialog[open])) {
+    overflow: hidden;
+  }
+
+  @keyframes reel-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes reel-fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+
+  @media (max-width: 1050px) {
+    .reel-teaser {
+      --phone-width: 128px;
+    }
+  }
+  @media (max-width: 760px) {
+    .ibai-reel {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reel-teaser {
+      transition: none;
+    }
+  }
+</style>

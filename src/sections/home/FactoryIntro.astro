@@ -2,6 +2,7 @@
 import Button from '@/components/Button.astro'
 import FactoryLogo from '@/components/ui/FactoryLogo.astro'
 import ChocolateBox from '@/components/ChocolateBox.astro'
+import IbaiReel from '@/components/IbaiReel.astro'
 import { CAMPAIGN } from '@/data/campaign'
 interface Props {
   campaignCopy: { title: string; lead?: string; text: string; href: string; cta: string; note: string }
@@ -48,6 +49,7 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
   </div>
   <div class="hero-art">
     <ChocolateBox />
+    <IbaiReel />
     <div class="edition-stamp">
       <span>Nueva edición</span>
       <strong>2026</strong>
@@ -209,8 +211,8 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
     position: absolute;
     z-index: 2;
     pointer-events: none;
-    right: 0;
-    bottom: 30px;
+    top: 6px;
+    left: 12px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -221,7 +223,7 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
     border: 1px solid #ffcf71;
     background: var(--brand-accent);
     color: var(--brand-ink);
-    transform: rotate(10deg);
+    transform: rotate(-10deg);
     box-shadow: 0 8px 25px #0005;
     transition:
       transform 450ms ease,
@@ -229,7 +231,14 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
       height 450ms ease;
   }
   .hero-art:has(chocolate-box[data-open='true']) .edition-stamp {
-    transform: translateY(40px) rotate(10deg) scale(0.85);
+    transform: rotate(-10deg) scale(0.85);
+  }
+  /* Con la caja abierta, el reel se aparta para no tapar las chocolatinas */
+  .hero-art:has(chocolate-box[data-open='true']) :global(.ibai-reel) {
+    opacity: 0;
+    translate: 24px 24px;
+    scale: 0.9;
+    pointer-events: none;
   }
   .edition-stamp span {
     font-size: 10px;
@@ -431,8 +440,8 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
       justify-self: center;
     }
     .edition-stamp {
-      right: 12px;
-      bottom: 25px;
+      top: 4px;
+      left: 4px;
       width: 91px;
       height: 91px;
     }
@@ -449,9 +458,7 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
     .hero-art:has(chocolate-box[data-open='true']) .edition-stamp {
       width: 70px;
       height: 70px;
-      bottom: 15px;
-      right: 12px;
-      transform: rotate(10deg);
+      transform: rotate(-10deg);
     }
     .hero-art:has(chocolate-box[data-open='true']) .edition-stamp strong {
       font-size: 24px;
