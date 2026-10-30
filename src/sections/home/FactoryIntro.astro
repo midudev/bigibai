@@ -4,7 +4,7 @@ import FactoryLogo from '@/components/ui/FactoryLogo.astro'
 import ChocolateBox from '@/components/ChocolateBox.astro'
 import { CAMPAIGN } from '@/data/campaign'
 interface Props {
-  campaignCopy: { title: string; text: string; href: string; cta: string; note: string }
+  campaignCopy: { title: string; lead?: string; text: string; href: string; cta: string; note: string }
   calendarProgress: { value: number; label: string } | null
   highlights: readonly { value: number; label: string; icon: 'chocolate' | 'gift' | 'door' }[]
 }
@@ -17,7 +17,9 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
       <FactoryLogo />
     </h1>
     <p class="hero-headline">{campaignCopy.title}</p>
-    <p class="hero-description">{campaignCopy.text}</p>
+    <p class="hero-description">
+      {campaignCopy.lead && <strong>{campaignCopy.lead}</strong>} {campaignCopy.text}
+    </p>
     <div class="hero-actions">
       <Button size="lg" href={campaignCopy.href}>
         {campaignCopy.cta}
@@ -33,9 +35,6 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
           <path d="M5 12h14M12 5l7 7-7 7" />
         </svg>
       </Button>
-      <a class="ui-text-link" href="#como-participar">
-        Cómo funciona
-      </a>
     </div>
     <div class="hero-details">
       {calendarProgress && (
@@ -163,7 +162,6 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
   .hero-actions {
     display: flex;
     align-items: center;
-    gap: 26px;
     margin-top: 28px;
   }
   .hero-details {
@@ -198,6 +196,7 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
   }
   .hero-note {
     max-width: 260px;
+    text-wrap: balance;
   }
   .hero-art {
     position: relative;
@@ -351,9 +350,6 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
     .hero-description {
       font-size: 13px;
     }
-    .hero-actions {
-      gap: 18px;
-    }
     .hero-details {
       gap: 18px;
       font-size: 13px;
@@ -407,7 +403,6 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
     }
     .hero-actions {
       justify-content: center;
-      gap: 22px;
       margin-top: 23px;
     }
     .hero-details {
@@ -497,9 +492,6 @@ const { campaignCopy, calendarProgress, highlights } = Astro.props
     }
     .hero-details > * + * {
       padding-left: 12px;
-    }
-    .hero-actions {
-      gap: 14px;
     }
   }
 </style>

@@ -12,6 +12,7 @@ import {
   getDaysUntilUnlock,
   isExperienceEnabled,
   formatCampaignDate,
+  formatCampaignTime,
 } from '@/utils/campaign'
 interface Props {
   isLoggedIn: boolean
@@ -34,7 +35,11 @@ const calendarProgress = !isExperienceEnabled(now)
       }
     : { value: currentDay, label: `de ${CAMPAIGN.totalDays} casillas abiertas` }
 const participations =
-  participationCount === 1 ? '1 participación' : `${participationCount} participaciones`
+  participationCount === 0
+    ? ''
+    : participationCount === 1
+      ? 'Tienes 1 participación. '
+      : `Tienes ${participationCount} participaciones. `
 
 const campaignCopy = {
   upcoming: {
@@ -46,13 +51,14 @@ const campaignCopy = {
   },
   registration: {
     title: 'Tu calendario. Tu código. Tu ilusión.',
+    lead: isLoggedIn && participationCount === 0 ? '¡No tienes participaciones!' : undefined,
     text: isLoggedIn
-      ? `Tienes ${participations}. Registra el código de tu calendario y prepárate para descubrir una casilla cada día.`
+      ? `${participations}Registra el código de tu calendario y prepárate para descubrir una casilla cada día.`
       : '¿Ya tienes tu calendario? Inicia sesión y registra tu código para participar en los sorteos de esta edición.',
     href: isLoggedIn ? '/dashboard' : '/registro',
     cta: isLoggedIn ? 'Registrar mi código' : 'Iniciar sesión y participar',
     note: CAMPAIGN.registrationClosesAt
-      ? `Registra tu calendario hasta el ${formatCampaignDate(CAMPAIGN.registrationClosesAt)}.`
+      ? `Registra tu calendario hasta el ${formatCampaignDate(CAMPAIGN.registrationClosesAt)} a las ${formatCampaignTime(CAMPAIGN.registrationClosesAt)}.`
       : 'Consulta las condiciones de participación en las bases legales.',
   },
   closed: {

@@ -31,6 +31,12 @@ const dayMonthFormatter = new Intl.DateTimeFormat('es-ES', {
   month: 'long',
 })
 
+const timeFormatter = new Intl.DateTimeFormat('es-ES', {
+  timeZone: CAMPAIGN.timeZone,
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 const dateTimeFormatter = new Intl.DateTimeFormat('es-ES', {
   timeZone: CAMPAIGN.timeZone,
   dateStyle: 'medium',
@@ -123,6 +129,10 @@ export function isExperienceEnabled(now: Date): boolean {
  */
 export function formatCampaignDate(isoDate: string): string {
   return dayMonthFormatter.format(new Date(isoDate))
+}
+
+export function formatCampaignTime(isoDate: string): string {
+  return timeFormatter.format(new Date(isoDate))
 }
 
 export function formatCampaignDateTime(date: Date): string {
