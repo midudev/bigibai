@@ -79,32 +79,32 @@ Los gastos no expresamente incluidos serán asumidos por el ganador. Las obligac
 
 Se sortearán veinticuatro (24) premios, uno por cada casilla del 1 al 24 de diciembre, con las categorías y denominaciones resumidas recogidas en la siguiente tabla.
 
-| Día | Categoría | Premio |
-| --- | --- | --- |
-| 1/12 | Equipamiento Pro | El simulador de conducción definitivo |
-| 2/12 | Drops Épicos | PACK POKÉMON TCG |
-| 3/12 | Tu mejor Versión | Apple Watch Ultra 3 + AppleCare |
-| 4/12 | Planes Increíbles | Una noche privada en un observatorio para 2 |
-| 5/12 | Gigante Noble | Vive La Velada desde dentro para 2 |
-| 6/12 | Planes Increíbles | Fórmula 1 Official Hospitality para 2 |
-| 7/12 | Drops Épicos | Todo tu entretenimiento durante un año |
-| 8/12 | Planes Increíbles | Maldivas para 2 con todo organizado |
-| 9/12 | Equipamiento Pro | Patinete eléctrico TOP |
-| 10/12 | Drops Épicos | Set de LEGO valorado en 3.000 € |
-| 11/12 | Planes Increíbles | Cine privado para ti y tus amigos |
-| 12/12 | Gigante Noble | Art Toy 1/1 firmado por Ibai Llanos |
-| 13/12 | Tu mejor Versión | Un año para aprender lo que quieras |
-| 14/12 | Drops Épicos | Tu año de sneakers: 2.000 € en zapatillas |
-| 15/12 | Equipamiento Pro | Moto eléctrica NIU RQi Sport |
-| 16/12 | Drops Épicos | Coche tipo Mini por definir |
-| 17/12 | Planes Increíbles | Semana de esquí para 2 |
-| 18/12 | Equipamiento Pro | iPhone Duo |
-| 19/12 | Planes Increíbles | Una temporada siguiendo a tu equipo |
-| 20/12 | Planes Increíbles | Puenting para 2 |
-| 21/12 | Planes Increíbles | Un finde en Canarias para ti y 4 amigos |
-| 22/12 | Planes Increíbles | 12 conciertos en un año |
-| 23/12 | Planes Increíbles | Ruta 66 durante 17 días para 2 |
-| 24/12 | Premio Legendario | Vuelta al mundo para 2 - 15 días |
+| Día | Categoría |
+| --- | --- |
+| 1/12 | Equipamiento Pro |
+| 2/12 | Drops Épicos |
+| 3/12 | Tu mejor Versión |
+| 4/12 | Planes Increíbles |
+| 5/12 | Gigante Noble |
+| 6/12 | Planes Increíbles |
+| 7/12 | Drops Épicos |
+| 8/12 | Planes Increíbles |
+| 9/12 | Equipamiento Pro |
+| 10/12 | Drops Épicos |
+| 11/12 | Planes Increíbles |
+| 12/12 | Gigante Noble |
+| 13/12 | Tu mejor Versión |
+| 14/12 | Drops Épicos |
+| 15/12 | Equipamiento Pro |
+| 16/12 | Drops Épicos |
+| 17/12 | Planes Increíbles |
+| 18/12 | Equipamiento Pro |
+| 19/12 | Planes Increíbles |
+| 20/12 | Planes Increíbles |
+| 21/12 | Planes Increíbles |
+| 22/12 | Planes Increíbles |
+| 23/12 | Planes Increíbles |
+| 24/12 | Premio Legendario |
 
 SALAD BRANDS se reserva el derecho de sustituir cualquiera de los premios anunciados por otro de características similares y valor económico equivalente o superior, exclusivamente cuando concurran causas justificadas, como falta de disponibilidad, cancelación del proveedor, fuerza mayor o circunstancias ajenas a su control.
 
