@@ -9,19 +9,17 @@ export const CAMPAIGN = {
   timeZone: 'Europe/Madrid',
   totalDays: 24,
 
-  // Inicio de sesión y alta de cuentas (Google y enlace mágico).
-  // Desactivado mientras se limpia la base de datos de la edición anterior.
-  signInEnabled: false,
+  // Inicio de sesión y alta de cuentas (Google y enlace mágico)
+  signInEnabled: true,
   // Enlace mágico por email (solo cuenta si signInEnabled está activo). Con false solo se entra
   // con Google.
   emailSignInEnabled: true,
 
-  // Pendientes de las bases legales 2026. Mientras sean null el registro no se abre.
-  // Referencia 2025: '2025-10-22T00:00:00+02:00' → '2025-12-23T23:59:59+01:00'
-  registrationOpensAt: null as string | null,
-  registrationClosesAt: null as string | null,
+  // Plazo de participación de las bases legales 2026. Con null el registro no se abre
+  registrationOpensAt: '2026-10-22T00:00:00+02:00' as string | null,
+  registrationClosesAt: '2026-12-23T23:59:59+01:00' as string | null,
 
-  // Referencia 2025: '2025-12-24T18:00:00+01:00'
+  // Las bases legales los publican el 24/12/2026 a las 19:00: '2026-12-24T19:00:00+01:00'
   winnersPublishedAt: null as string | null,
 
   // Fecha a partir de la cual se apaga la experiencia (casillas y juegos).
