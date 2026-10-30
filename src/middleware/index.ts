@@ -7,7 +7,7 @@ import { parseSimulatedDate } from '@/utils/campaign'
 
 const protectedRoutes = ['/dashboard', '/admin']
 const redirectRoutes = ['/registro']
-const publicRoutes = ['/aviso-legal', '/bases-legales', '/politica-de-cookies', '/privacidad', '/api/auth/signin', '/api/auth/callback', '/api/auth/signout']
+const publicRoutes = ['/aviso-legal', '/bases-legales', '/politica-de-cookies', '/privacidad', '/api/auth/signin', '/api/auth/callback', '/api/auth/signout', '/video/reel-ibai.mp4']
 
 const SIMULATED_DATE_PARAM = 'fecha'
 const SIMULATED_DATE_COOKIE = 'fecha-simulada'

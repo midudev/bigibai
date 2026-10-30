@@ -5,6 +5,7 @@ declare module 'cloudflare:workers' {
   }
 
   export const env: {
+    ASSETS: { fetch(request: Request): Promise<Response> }
     MAGIC_LINK_EMAIL_LIMITER: RateLimit
     MAGIC_LINK_IP_LIMITER: RateLimit
     COUPON_IP_LIMITER: RateLimit
