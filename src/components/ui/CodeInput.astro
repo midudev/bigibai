@@ -10,61 +10,103 @@ const { id = 'coupon', label = 'Código de tu calendario' } = Astro.props
   <legend class="ui-field-label">{label}</legend>
   <div class="code-groups">
     {Array.from({ length: 3 }, (_, group) => (
-      <div class="code-group" data-group={group}>
-        {Array.from({ length: 4 }, (_, index) => (
-          <input
-            type="text"
-            maxlength="1"
-            data-index={group * 4 + index}
-            autocomplete="off"
-            spellcheck="false"
-            inputmode="text"
-            aria-label={`Carácter ${group * 4 + index + 1} de 12`}
-            aria-describedby={`${id}-hint`}
-            class="coupon-input"
-          />
-        ))}
-      </div>
+      <>
+        {group > 0 && <span class="code-sep" aria-hidden="true" />}
+        <div class="code-group" data-group={group}>
+          {Array.from({ length: 4 }, (_, index) => (
+            <input
+              type="text"
+              maxlength="1"
+              data-index={group * 4 + index}
+              autocomplete="off"
+              spellcheck="false"
+              inputmode="text"
+              placeholder=" "
+              aria-label={`Carácter ${group * 4 + index + 1} de 12`}
+              aria-describedby={`${id}-hint`}
+              class="coupon-input"
+            />
+          ))}
+        </div>
+      </>
     ))}
   </div>
-  <p id={`${id}-hint`}>Introduce los 12 caracteres. Los guiones se añaden automáticamente.</p>
+  <p id={`${id}-hint`}>Introduce los 12 caracteres o pega el código completo.</p>
 </fieldset>
 <style>
   .code-field {
     min-width: 0;
   }
+  .code-field :global(.ui-field-label) {
+    margin-bottom: 12px;
+    font-size: 13px;
+  }
   .code-groups {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: clamp(8px, 2vw, 20px);
+    display: flex;
+    align-items: center;
+    gap: clamp(6px, 1.2vw, 12px);
   }
   .code-group {
     display: grid;
+    flex: 1;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: clamp(3px, 1vw, 7px);
+    gap: clamp(4px, 0.8vw, 8px);
+    min-width: 0;
+  }
+  .code-sep {
+    flex-shrink: 0;
+    width: clamp(6px, 1vw, 12px);
+    height: 2px;
+    border-radius: 2px;
+    background: var(--border-strong);
   }
   .coupon-input {
     width: 100%;
     min-width: 0;
-    height: clamp(38px, 5vw, 54px);
+    height: clamp(44px, 5vw, 58px);
     padding: 0;
     border: 1px solid var(--border-strong);
-    border-radius: 6px;
+    border-radius: 8px;
     background: var(--surface-inset);
     color: var(--text-heading);
     font-family: var(--font-body);
-    font-size: clamp(14px, 2vw, 20px);
+    font-size: clamp(16px, 2vw, 22px);
     font-weight: bold;
     text-align: center;
     text-transform: uppercase;
+    caret-color: var(--brand-accent);
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  .coupon-input:not(:placeholder-shown) {
+    border-color: color-mix(in srgb, var(--brand-accent) 45%, transparent);
   }
   .coupon-input:focus {
+    outline: none;
     border-color: var(--brand-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-accent) 25%, transparent);
   }
   .code-field > p {
-    margin-top: 15px;
+    margin-top: 12px;
     color: var(--text-muted);
-    font-size: 10px;
-    line-height: 1.8;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  @media (max-width: 480px) {
+    .code-groups {
+      gap: 10px;
+    }
+    .code-group {
+      gap: 4px;
+    }
+    .code-sep {
+      display: none;
+    }
+    .coupon-input {
+      height: 48px;
+      border-radius: 6px;
+      font-size: 18px;
+    }
   }
 </style>

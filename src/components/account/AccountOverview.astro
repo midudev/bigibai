@@ -14,72 +14,164 @@ interface Props {
   phase?: CampaignPhase
 }
 const { totalCoupons, userAchievements, phase = getCampaignPhase(Astro.locals.now) } = Astro.props
+const accountEmail = Astro.locals.user?.email
 ---
 
-<SectionHeading
-  as="h1"
-  size="page"
-  eyebrow="Tu rincón en la fábrica"
-  title="Tus participaciones, en un vistazo."
-  description="Registra tus calendarios, consulta tus participaciones y sigue descubriendo el universo de Big Ibai."
-/>
-<div class="account-grid">
-  <div class="account-main">
-    <TicketContainer totalCoupons={totalCoupons} />
-    <Surface padded id="coupon-section">
-      {phase === 'registration' ? (
-        <>
-          <SectionHeading
-            as="h2"
-            size="small"
-            title="Registra tu calendario"
-            description="Encontrarás el código detrás de la caja de chocolate."
-          />
-          <div class="coupon-form-wrap">
-            <CouponInput />
-          </div>
-        </>
-      ) : (
-        <Notice
-          variant={phase === 'upcoming' ? 'info' : 'warning'}
-          title={
-            phase === 'upcoming' ? 'El registro aún no está abierto' : 'El registro ha finalizado'
-          }
-        >
-          {phase === 'upcoming'
-            ? `Muy pronto podrás registrar aquí el código de tu calendario ${CAMPAIGN.name} para participar en los sorteos.`
-            : 'Ya no es posible registrar más códigos. Aquí puedes consultar tus participaciones y los logros conseguidos.'}
-        </Notice>
-      )}
+<header class="account-header">
+  <SectionHeading
+    as="h1"
+    size="page"
+    class="account-intro"
+    title="Tus participaciones, en un vistazo"
+    description="Registra tus calendarios, consulta tus participaciones y sigue descubriendo el universo de Big Ibai."
+  />
+  <TicketContainer totalCoupons={totalCoupons} />
+</header>
+<div class="account-sections">
+  {phase === 'registration' ? (
+    <Surface
+      as="section"
+      padded
+      id="coupon-section"
+      class="coupon-card"
+      aria-labelledby="coupon-title"
+    >
+      <div class="coupon-intro">
+        <SectionHeading
+          as="h2"
+          size="card"
+          id="coupon-title"
+          title="Registra tu calendario"
+          description="Encontrarás el código detrás de la caja de chocolate. Cada calendario registrado suma una participación."
+        />
+        {accountEmail && (
+          <p class="coupon-account">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21a8 8 0 0 1 16 0" />
+            </svg>
+            <span>
+              Se registrará en la cuenta <strong>{accountEmail}</strong>
+            </span>
+          </p>
+        )}
+      </div>
+      <div class="coupon-form">
+        <CouponInput />
+      </div>
     </Surface>
-    <GamesContainer totalCoupons={totalCoupons} />
-  </div>
-  <aside aria-label="Logros de tu cuenta">
-    <AchievementsBox isLoggedIn={true} userAchievements={userAchievements} />
-  </aside>
+  ) : (
+    <Notice
+      id="coupon-section"
+      variant={phase === 'upcoming' ? 'info' : 'warning'}
+      title={phase === 'upcoming' ? 'El registro aún no está abierto' : 'El registro ha finalizado'}
+    >
+      {phase === 'upcoming'
+        ? `Muy pronto podrás registrar aquí el código de tu calendario ${CAMPAIGN.name} para participar en los sorteos.`
+        : 'Ya no es posible registrar más códigos. Aquí puedes consultar tus participaciones y los logros conseguidos.'}
+    </Notice>
+  )}
+  <GamesContainer totalCoupons={totalCoupons} />
+  <section class="account-achievements" aria-label="Logros de tu cuenta">
+    <AchievementsBox layout="shelf" isLoggedIn={true} userAchievements={userAchievements} />
+  </section>
 </div>
 <style>
-  .account-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
-    align-items: start;
-    gap: 25px;
-    margin-top: 40px;
+  .account-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 48px;
+    padding-bottom: 48px;
+    border-bottom: 1px solid var(--border-subtle);
   }
-  .account-main {
+  .account-header :global(.account-intro .ui-description) {
+    max-width: 48ch;
+    margin-top: 20px;
+    color: var(--text-copy);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.6;
+  }
+  .account-sections {
     display: grid;
     gap: 24px;
+    margin-top: 48px;
+  }
+  .coupon-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    align-items: center;
+    gap: clamp(32px, 5vw, 72px);
+  }
+  .coupon-intro :global(.ui-description) {
+    margin-top: 14px;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .coupon-account {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 100%;
+    margin-top: 24px;
+    padding: 8px 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .coupon-account svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+  .coupon-account span {
     min-width: 0;
+    overflow-wrap: anywhere;
   }
-  .coupon-form-wrap {
-    margin-top: 25px;
+  .coupon-account strong {
+    color: var(--text-heading);
   }
-  @media (max-width: 950px) {
-    .account-grid {
+  .account-achievements {
+    margin-top: 40px;
+    padding-top: 48px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  @media (max-width: 900px) {
+    .coupon-card {
       grid-template-columns: 1fr;
     }
-    .account-grid aside {
-      max-width: 100%;
+  }
+  @media (max-width: 760px) {
+    .account-header {
+      flex-direction: column;
+      align-items: start;
+      gap: 32px;
+      padding-bottom: 36px;
+    }
+    .account-sections {
+      margin-top: 32px;
+    }
+    .account-achievements {
+      margin-top: 24px;
+      padding-top: 36px;
+    }
+    .coupon-account {
+      border-radius: var(--radius-control);
+    }
+  }
+  @media (max-width: 480px) {
+    .coupon-card {
+      margin-inline: calc(var(--page-gutter) * -1);
+      padding-inline: var(--page-gutter);
+      border-inline: 0;
+      border-radius: 0;
     }
   }
 </style>

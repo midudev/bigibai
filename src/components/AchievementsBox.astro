@@ -5,26 +5,42 @@ import SectionHeading from '@/components/ui/SectionHeading.astro'
 import Button from '@/components/Button.astro'
 import { CAMPAIGN } from '@/data/campaign'
 interface Props {
-  embedded?: boolean
+  layout?: 'grid' | 'shelf'
   isLoggedIn: boolean
   userAchievements: Record<string, { created_at: string }>
 }
-const { isLoggedIn, userAchievements, embedded = false } = Astro.props
+const { isLoggedIn, userAchievements, layout = 'grid' } = Astro.props
+const plain = layout === 'shelf'
 const allAchievements = Object.values(ACHIEVEMENTS)
 const unlockedCount = allAchievements.filter(({ id }) => !!userAchievements[id]).length
 ---
 
-<Surface padded={!embedded} variant={embedded ? 'plain' : 'default'} class="achievements-box">
-  <SectionHeading
-    as="h2"
-    size="small"
-    title="Tus logros"
-    description={
-      isLoggedIn
-        ? `${unlockedCount} de ${allAchievements.length} desbloqueados. Cada reto guarda una nueva historia.`
-        : 'Inicia sesión para desbloquear y guardar tus logros.'
-    }
-  />
+<Surface
+  padded={!plain}
+  variant={plain ? 'plain' : 'default'}
+  class:list={['achievements-box', `achievements-box--${layout}`]}
+>
+  <div class="achievements-head">
+    <SectionHeading
+      as="h2"
+      size={layout === 'shelf' ? 'card' : 'small'}
+      title="Tus logros"
+      description={isLoggedIn ? undefined : 'Inicia sesión para desbloquear y guardar tus logros.'}
+    />
+    {isLoggedIn && (
+      <div class="achievements-progress">
+        <p class="achievements-count">
+          <strong>{unlockedCount}</strong> / {allAchievements.length}{' '}
+          <span class:list={{ 'sr-only': layout === 'grid' }}>desbloqueados</span>
+        </p>
+        {layout === 'shelf' && (
+          <span class="achievements-bar" aria-hidden="true">
+            <span style={`width: ${(unlockedCount / allAchievements.length) * 100}%`} />
+          </span>
+        )}
+      </div>
+    )}
+  </div>
   <div class="achievements-grid">
     {allAchievements.map((achievement) => {
       const unlocked = !!userAchievements[achievement.id]
@@ -33,7 +49,9 @@ const unlockedCount = allAchievements.filter(({ id }) => !!userAchievements[id])
           class:list={['achievement-item', { 'is-locked': !unlocked }]}
           data-tip={unlocked ? achievement.descriptionDone : achievement.descriptionDo}
         >
-          <img src={achievement.image} alt="" width="56" height="56" loading="lazy" />
+          <span class="achievement-medal">
+            <img src={achievement.image} alt="" width="56" height="56" loading="lazy" />
+          </span>
           <p>{achievement.title}</p>
         </div>
       )
@@ -47,14 +65,31 @@ const unlockedCount = allAchievements.filter(({ id }) => !!userAchievements[id])
 </Surface>
 <style>
   .achievements-box :global(.ui-description) {
-    font-size: 11px;
+    font-size: 12px;
     margin-top: 10px;
+  }
+  .achievements-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .achievements-count {
+    color: var(--text-muted);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .achievements-count strong {
+    color: var(--brand-accent);
   }
   .achievements-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 23px 10px;
-    margin-block: 28px;
+    gap: 28px 12px;
+    margin-top: 32px;
+  }
+  .achievements-grid + :global(*) {
+    margin-top: 28px;
   }
   .achievement-item {
     display: flex;
@@ -68,9 +103,62 @@ const unlockedCount = allAchievements.filter(({ id }) => !!userAchievements[id])
     height: 48px;
     object-fit: contain;
   }
+  .achievements-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: end;
+    gap: 10px;
+  }
+  .achievements-box--shelf .achievements-count {
+    font-size: 14px;
+  }
+  .achievements-bar {
+    display: block;
+    width: 160px;
+    height: 6px;
+    border-radius: 6px;
+    background: var(--surface-raised);
+    overflow: hidden;
+  }
+  .achievements-bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--brand-accent);
+  }
+  .achievements-box--shelf .achievements-head {
+    align-items: end;
+  }
+  .achievements-box--shelf .achievements-grid {
+    grid-template-columns: var(--achievements-columns, repeat(auto-fit, minmax(104px, 1fr)));
+    gap: 32px 16px;
+  }
+  .achievements-box--shelf .achievement-medal {
+    display: grid;
+    place-items: center;
+    width: 84px;
+    height: 84px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 50%;
+    background: var(--surface);
+  }
+  .achievements-box--shelf .achievement-item {
+    gap: 14px;
+  }
+  .achievements-box--shelf .achievement-item p {
+    font-size: 12px;
+  }
+  .achievements-box--shelf .achievement-item:not(.is-locked) .achievement-medal {
+    border-color: color-mix(in srgb, var(--brand-accent) 60%, transparent);
+    background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--brand-accent) 22%, var(--surface)),
+      var(--surface) 70%
+    );
+  }
   .achievement-item p {
     color: var(--text-copy);
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.6;
     text-wrap: balance;
   }

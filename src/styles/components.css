@@ -50,6 +50,9 @@
   .ui-heading--section {
     font-size: clamp(28px, 3.5vw, 44px);
   }
+  .ui-heading--card {
+    font-size: clamp(26px, 3vw, 34px);
+  }
   .ui-heading--small {
     font-family: var(--font-body);
     font-size: clamp(18px, 2vw, 23px);

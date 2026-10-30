@@ -21,7 +21,7 @@
   --radius-control: 10px;
   --font-body: 'Century', sans-serif;
   --font-display: 'Heavy', sans-serif;
-  --content-max: 1200px;
+  --content-max: 1280px;
   --content-wide: 1280px;
   --content-reading: 760px;
   --page-gutter: clamp(20px, 3.2vw, 40px);

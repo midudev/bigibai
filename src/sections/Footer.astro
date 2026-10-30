@@ -27,7 +27,7 @@ import BrandLogo from '@/components/ui/BrandLogo.astro'
 <style>
   .campaign-footer {
     position: relative;
-    padding: 48px max(24px, calc((100% - var(--content-max)) / 2)) 24px;
+    padding: 48px max(var(--page-gutter), calc((100% - var(--content-max)) / 2)) 24px;
     background: var(--surface-inset);
     color: var(--text-copy);
     font-family: var(--font-body);

@@ -2,21 +2,33 @@
 import Button from '@/components/Button.astro'
 import CodeInput from '@/components/ui/CodeInput.astro'
 import Surface from '@/components/ui/Surface.astro'
+import TicketIcon from '@/icons/ticket.svg'
 import { CAMPAIGN } from '@/data/campaign'
 import { formatCampaignDate } from '@/utils/campaign'
 
 const { registrationClosesAt } = CAMPAIGN
 ---
 
-<form id="coupon-form" class="space-y-6">
+<form id="coupon-form" class="space-y-5">
   <input type="hidden" id="coupon-value" name="coupon" required />
   <CodeInput />
-  <Button type="submit" variant="brand" size="lg" class="w-full">
-    Registrar código
+  <Button type="submit" variant="brand" size="xl" class="coupon-submit w-full">
+    <TicketIcon id="coupon-submit-icon" aria-hidden="true" />
+    <svg
+      id="coupon-submit-spinner"
+      class="hidden animate-spin"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity=".3" />
+      <path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" stroke-width="3" />
+    </svg>
+    <span id="coupon-submit-text">Registrar código</span>
   </Button>
 </form>
-<div id="message-container" class="mt-4">
-  <div id="message" class="ui-notice hidden" role="status" aria-live="polite"></div>
+<div id="message-container">
+  <div id="message" class="ui-notice hidden mt-4" role="status" aria-live="polite"></div>
 </div>
 
 <!-- Contenedor con altura animada para evitar layout shift -->
@@ -63,23 +75,8 @@ const { registrationClosesAt } = CAMPAIGN
           <div class="pt-0.5">
             <p class="text-white font-semibold text-sm mb-1">Comprueba el código</p>
             <p class="text-white/70 text-xs md:text-sm leading-relaxed">
-              Es fácil confundir caracteres parecidos. Revisa que el número
-              <span class="inline-flex items-center justify-center size-5 rounded bg-white/10 font-mono text-brand text-xs font-bold">
-                0
-              </span>
-              no sea la letra
-              <span class="inline-flex items-center justify-center size-5 rounded bg-white/10 font-mono text-brand text-xs font-bold">
-                O
-              </span>
-              , o que el
-              <span class="inline-flex items-center justify-center size-5 rounded bg-white/10 font-mono text-brand text-xs font-bold">
-                1
-              </span>
-              no sea una
-              <span class="inline-flex items-center justify-center size-5 rounded bg-white/10 font-mono text-brand text-xs font-bold">
-                I
-              </span>
-              .
+              Es fácil confundir caracteres parecidos. Revisa que lo hayas copiado tal y como aparece
+              en el calendario.
             </p>
           </div>
         </div>
@@ -91,11 +88,11 @@ const { registrationClosesAt } = CAMPAIGN
           <div class="pt-0.5">
             <p class="text-white font-semibold text-sm mb-1">¿Te dice que ya está usado?</p>
             <p class="text-white/70 text-xs md:text-sm leading-relaxed">
-              Escríbenos a
+              Escríbenos a{' '}
               <a href="mailto:hola@bigibai.com" class="text-brand hover:underline font-semibold">
                 hola@bigibai.com
-              </a>
-              adjuntando una foto del <strong class="text-white/90">ticket de compra</strong> y del
+              </a>{' '}
+              adjuntando una foto del <strong class="text-white/90">ticket de compra</strong> y del{' '}
               <strong class="text-white/90">calendario</strong>. ¡Te ayudamos encantados!
             </p>
           </div>
@@ -119,6 +116,17 @@ const { registrationClosesAt } = CAMPAIGN
       'header-participation-count'
     ) as HTMLDivElement
     const errorHelpWrapper = document.getElementById('error-help-wrapper') as HTMLDivElement
+    const submitButton = couponForm.querySelector<HTMLButtonElement>('button[type="submit"]')!
+    const submitText = document.getElementById('coupon-submit-text')!
+    const submitIcon = document.getElementById('coupon-submit-icon')!
+    const submitSpinner = document.getElementById('coupon-submit-spinner')!
+
+    function setLoading(loading: boolean) {
+      submitButton.disabled = loading
+      submitText.textContent = loading ? 'Registrando…' : 'Registrar código'
+      submitIcon.classList.toggle('hidden', loading)
+      submitSpinner.classList.toggle('hidden', !loading)
+    }
 
     // Función para actualizar el valor oculto
     function updateHiddenInput() {
@@ -206,18 +214,10 @@ const { registrationClosesAt } = CAMPAIGN
           return
         }
 
+        setLoading(true)
         try {
           // Importar actions dinámicamente
           const { actions } = await import('astro:actions')
-
-          // Deshabilitar el botón durante la validación
-          const submitButton = couponForm.querySelector(
-            'button[type="submit"]'
-          ) as HTMLButtonElement
-          if (submitButton) {
-            submitButton.disabled = true
-            submitButton.textContent = 'Validando...'
-          }
 
           // Llamar a la action
           const { data, error } = await actions.validateCoupon({
@@ -272,26 +272,13 @@ const { registrationClosesAt } = CAMPAIGN
             }
 
             // Actualizar el ticket
-            updateTicket(data.totalCoupons)
-          }
-
-          // Rehabilitar el botón
-          if (submitButton) {
-            submitButton.disabled = false
-            submitButton.textContent = 'Registrar código'
+            if (data.totalCoupons !== undefined) updateTicket(data.totalCoupons)
           }
         } catch (error) {
           console.error('Error al validar el cupón:', error)
           showMessage('Error al validar el cupón. Por favor, inténtalo de nuevo.', true)
-
-          // Rehabilitar el botón
-          const submitButton = couponForm.querySelector(
-            'button[type="submit"]'
-          ) as HTMLButtonElement
-          if (submitButton) {
-            submitButton.disabled = false
-            submitButton.textContent = 'Registrar código'
-          }
+        } finally {
+          setLoading(false)
         }
       })
     }
@@ -317,12 +304,19 @@ const { registrationClosesAt } = CAMPAIGN
 </script>
 
 <style>
-  .coupon-input:focus {
-    transform: scale(1.05);
+  #coupon-form :global(.coupon-submit) {
+    transition:
+      background 0.15s,
+      transform 0.1s,
+      box-shadow 0.1s;
   }
-
-  .coupon-input::placeholder {
-    color: rgba(248, 177, 52, 0.3);
+  #coupon-form :global(.coupon-submit:active:not(:disabled)) {
+    transform: translateY(2px);
+    box-shadow: 0 1px 0 var(--brand-edge);
+  }
+  #coupon-form :global(.coupon-submit svg) {
+    width: 20px;
+    height: 20px;
   }
 
   /* Contenedor con animación de altura sin layout shift */
@@ -330,7 +324,6 @@ const { registrationClosesAt } = CAMPAIGN
     display: grid;
     grid-template-rows: 0fr;
     transition: grid-template-rows 0.4s ease-out;
-    margin-top: 1.5rem;
   }
 
   .error-help-wrapper.is-visible {
@@ -342,6 +335,7 @@ const { registrationClosesAt } = CAMPAIGN
   }
 
   .error-help-content > div {
+    margin-top: 1.5rem;
     opacity: 0;
     transform: translateY(-10px);
     transition:

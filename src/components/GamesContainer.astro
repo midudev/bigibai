@@ -18,7 +18,7 @@ const days = Array.from({ length: availableDays }, (_, i) => i + 1)
   <Surface as="section" padded aria-labelledby="available-games">
     <SectionHeading
       as="h2"
-      size="small"
+      size="card"
       id="available-games"
       title="Tu próxima casilla"
       description={
@@ -38,8 +38,15 @@ const days = Array.from({ length: availableDays }, (_, i) => i + 1)
 <style>
   .games-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
     gap: 10px;
-    margin-block: 24px;
+    margin-block: 28px 24px;
+  }
+  .games-grid :global(.advent-door) {
+    min-height: 0;
+    aspect-ratio: 1;
+  }
+  .games-grid :global(.door-number) {
+    font-size: 30px;
   }
 </style>

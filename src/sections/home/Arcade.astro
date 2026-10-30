@@ -1,12 +1,10 @@
 ---
 import Container from '@/components/ui/Container.astro'
 import SectionHeading from '@/components/ui/SectionHeading.astro'
-import Surface from '@/components/ui/Surface.astro'
 import Notice from '@/components/ui/Notice.astro'
 import Clicker from '@/components/Clicker.astro'
 import AchievementsBox from '@/components/AchievementsBox.astro'
 import { NOTICES } from '@/data/campaign'
-import { getCampaignDay } from '@/utils/campaign'
 interface Props {
   isLoggedIn: boolean
   userAchievements: Record<string, { created_at: string }>
@@ -15,31 +13,16 @@ const { isLoggedIn, userAchievements } = Astro.props
 ---
 
 <Container as="section" id="clicker" class="arcade-section" aria-labelledby="arcade-title">
-  <div class="arcade-heading">
-    <SectionHeading
-      as="h2"
-      id="arcade-title"
-      title="Entra en modo juego."
-      eyebrow={
-        getCampaignDay(Astro.locals.now) === 0
-          ? 'Mientras llega diciembre…'
-          : 'Un rato en la fábrica'
-      }
-    />
-    <p>
-      Entrena tu guante en Choco Boxer
-      <br />y descubre tus logros.
-    </p>
-  </div>
-  <Surface variant="subtle" class="arcade-content">
+  <SectionHeading as="h2" id="arcade-title" title="Entra en modo juego." class="arcade-heading" />
+  <div class="arcade-content">
     <div class="arcade-game">
       <Clicker />
     </div>
-    <div class="arcade-achievements">
-      <AchievementsBox embedded {isLoggedIn} userAchievements={userAchievements} />
+    <div class="arcade-side">
+      <AchievementsBox layout="shelf" {isLoggedIn} userAchievements={userAchievements} />
+      <Notice class="arcade-notice">{NOTICES.gamesAreOptional}</Notice>
     </div>
-    <Notice class="arcade-notice">{NOTICES.gamesAreOptional}</Notice>
-  </Surface>
+  </div>
 </Container>
 
 <style>
@@ -48,24 +31,14 @@ const { isLoggedIn, userAchievements } = Astro.props
     padding: 0 0 65px;
     scroll-margin-top: 30px;
   }
-  .arcade-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    gap: 30px;
-    margin-bottom: 32px;
-  }
-  .arcade-heading > p {
-    color: var(--text-copy);
-    font-size: 12px;
-    line-height: 1.9;
+  .arcade-section :global(.arcade-heading) {
+    margin-bottom: 40px;
   }
   .arcade-content {
     display: grid;
-    grid-template-columns: 1.4fr 1fr;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
     align-items: center;
-    gap: 28px 45px;
-    padding: 32px;
+    gap: 40px clamp(40px, 6vw, 88px);
   }
   .arcade-game {
     display: flex;
@@ -80,8 +53,11 @@ const { isLoggedIn, userAchievements } = Astro.props
     max-width: 100%;
     margin: 0;
     border: 2px solid #7290c2;
-    border-radius: var(--radius-control);
-    box-shadow: none;
+    border-radius: var(--radius-panel);
+    box-shadow:
+      0 0 0 6px color-mix(in srgb, var(--surface-inset) 80%, transparent),
+      0 0 0 7px var(--border-subtle),
+      0 30px 80px -20px #01081d;
     overflow: hidden;
   }
   .arcade-game :global(#choco-start-screen) {
@@ -97,54 +73,46 @@ const { isLoggedIn, userAchievements } = Astro.props
     background: var(--brand-hover);
     box-shadow: 0 5px 0 var(--brand-edge);
   }
-  /* Pie de la tarjeta: el aviso va pegado a los juegos a los que se refiere */
-  .arcade-notice {
-    grid-column: 1 / -1;
-    align-items: center;
-    padding: 22px 0 0;
-    border: 0;
-    border-top: 1px solid var(--border-subtle);
-    border-radius: 0;
-    background: none;
-    font-size: 14px;
-    line-height: 1.6;
+  .arcade-side {
+    display: flex;
+    flex-direction: column;
+    gap: 44px;
+    min-width: 0;
   }
-  .arcade-notice :global(svg) {
-    width: 22px;
-    height: 22px;
-    margin-top: 0;
+  .arcade-side :global(.achievements-box) {
+    --achievements-columns: repeat(3, minmax(0, 1fr));
+  }
+  .arcade-side :global(.arcade-notice) {
+    align-items: start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.7;
   }
   @media (max-width: 1050px) {
     .arcade-section {
       width: calc(100% - var(--page-gutter) * 2);
     }
+  }
+  @media (max-width: 860px) {
     .arcade-content {
-      gap: 22px 25px;
-      padding: 24px;
+      grid-template-columns: 1fr;
+    }
+    .arcade-side {
+      gap: 32px;
     }
   }
   @media (max-width: 760px) {
     .arcade-section {
-      width: calc(100% - var(--page-gutter) * 2);
       padding-bottom: 45px;
     }
-    .arcade-heading {
-      display: block;
+    .arcade-section :global(.arcade-heading) {
       margin-bottom: 25px;
     }
-    .arcade-heading > p {
-      margin-top: 15px;
-      font-size: 11px;
-    }
-    .arcade-content {
-      grid-template-columns: 1fr;
-      padding: 12px;
-      gap: 15px;
-    }
-    .arcade-notice {
-      align-items: start;
-      padding: 16px 4px 6px;
-      font-size: 13px;
+    .arcade-game :global(#choco-game-container) {
+      box-shadow: 0 20px 50px -20px #01081d;
     }
   }
 </style>

@@ -1,98 +1,80 @@
 ---
-import Surface from '@/components/ui/Surface.astro'
-import { getCampaignPhase } from '@/utils/campaign'
+import { CAMPAIGN } from '@/data/campaign'
 interface Props {
   totalCoupons: number
 }
 const { totalCoupons } = Astro.props
-const phase = getCampaignPhase(Astro.locals.now)
-const hint =
-  phase === 'registration'
-    ? 'Registra otro calendario para sumar una nueva participación.'
-    : phase === 'upcoming'
-      ? 'El registro de calendarios abrirá muy pronto.'
-      : 'El plazo para registrar calendarios ha finalizado. ¡Gracias por participar!'
 ---
 
-<Surface as="article" padded class="ticket-card" aria-labelledby="participation-status">
-  <div class="ticket-symbol" aria-hidden="true">
-    <svg
-      width="28"
-      height="28"
-      viewBox="0 0 40 40"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-    >
-      <path d="M5 10h30v7a4 4 0 0 0 0 8v5H5v-5a4 4 0 0 0 0-8zM26 10v5m0 3v5m0 3v4" />
-    </svg>
-  </div>
-  <div id="ticket-content">
-    <h2 id="participation-status">Tus participaciones</h2>
-    <p class="ticket-total" aria-live="polite">
-      <strong id="ticket-coupon-count">{totalCoupons}</strong>
-      <span id="ticket-coupon-text">
-        {totalCoupons === 1 ? 'participación' : 'participaciones'}
-      </span>
-    </p>
-    <p class="ticket-hint">{hint}</p>
-  </div>
-</Surface>
+<div class="ticket">
+  <p class="ticket-body" aria-live="polite">
+    <strong id="ticket-coupon-count">{totalCoupons}</strong>
+    <span id="ticket-coupon-text">
+      {totalCoupons === 1 ? 'participación' : 'participaciones'}
+    </span>
+  </p>
+  <span class="ticket-stub" aria-hidden="true">
+    <span>{CAMPAIGN.name}</span>
+  </span>
+</div>
 <style>
-  .ticket-card {
+  .ticket {
+    --notch: 12px;
     display: flex;
-    align-items: start;
-    gap: 22px;
+    flex-shrink: 0;
+    min-width: 280px;
+    border-radius: 14px;
+    background:
+      url('/gold-texture.webp') center / cover,
+      var(--brand-accent);
+    color: var(--brand-ink);
+    mask:
+      radial-gradient(circle at 0 50%, #0000 var(--notch), #000 calc(var(--notch) + 0.5px)) left /
+        51% 100% no-repeat,
+      radial-gradient(circle at 100% 50%, #0000 var(--notch), #000 calc(var(--notch) + 0.5px))
+        right / 51% 100% no-repeat;
+    rotate: -3deg;
   }
-  .ticket-symbol {
+  .ticket-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    padding: 22px 28px 20px 32px;
+    font-size: 14px;
+    font-weight: bold;
+  }
+  strong {
+    font-family: var(--font-display);
+    font-size: 96px;
+    font-weight: normal;
+    line-height: 0.8;
+    margin-bottom: -0.14em;
+  }
+  .ticket-stub {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 52px;
-    height: 52px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-control);
-    color: var(--brand-accent);
-    flex-shrink: 0;
+    padding-inline: 14px 24px;
+    border-left: 2px dashed color-mix(in srgb, var(--brand-ink) 35%, transparent);
   }
-  h2 {
-    font-family: var(--font-body);
-    font-size: 15px;
+  .ticket-stub span {
+    writing-mode: vertical-rl;
+    rotate: 180deg;
+    font-size: 10px;
     font-weight: bold;
-    color: var(--text-heading);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    opacity: 0.7;
   }
-  .ticket-total {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    margin-top: 12px;
-    color: var(--text-copy);
-    font-size: 13px;
-  }
-  .ticket-total strong {
-    font-family: var(--font-display);
-    font-size: 46px;
-    font-weight: normal;
-    line-height: 1;
-    color: var(--brand-accent);
-  }
-  .ticket-hint {
-    margin-top: 15px;
-    font-size: 11px;
-    line-height: 1.9;
-    color: var(--text-muted);
-  }
-  @media (max-width: 400px) {
-    .ticket-card {
-      gap: 15px;
+  @media (max-width: 760px) {
+    .ticket {
+      min-width: 0;
+      width: min(100%, 300px);
+      rotate: -2deg;
     }
-    .ticket-symbol {
-      width: 40px;
-      height: 40px;
-    }
-    .ticket-total {
-      gap: 8px;
-      font-size: 11px;
+    strong {
+      font-size: 76px;
     }
   }
 </style>

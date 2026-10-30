@@ -6,7 +6,6 @@ import Participation from './home/Participation.astro'
 // Sección de llaveros oculta por ahora
 // import Keychains from './home/Keychains.astro'
 import StoreLocator from './home/StoreLocator.astro'
-import CampaignStatus from './home/CampaignStatus.astro'
 import { CAMPAIGN } from '@/data/campaign'
 import {
   getCampaignPhase,
@@ -40,7 +39,6 @@ const participations =
 
 const campaignCopy = {
   upcoming: {
-    status: 'La edición 2026 está en camino',
     title: 'La ilusión se fabrica a lo grande.',
     text: 'Vuelve Ibai con un nuevo universo, 24 chocolatinas y muchas ganas de que llegue diciembre.',
     href: '#calendario',
@@ -48,7 +46,6 @@ const campaignCopy = {
     note: 'Muy pronto anunciaremos la apertura del registro.',
   },
   registration: {
-    status: 'El registro de calendarios está abierto',
     title: 'Tu calendario. Tu código. Tu ilusión.',
     text: isLoggedIn
       ? `Tienes ${participations}. Registra el código de tu calendario y prepárate para descubrir una casilla cada día.`
@@ -60,7 +57,6 @@ const campaignCopy = {
       : 'Consulta las condiciones de participación en las bases legales.',
   },
   closed: {
-    status: 'El registro de calendarios ha finalizado',
     title: 'Gracias por formar parte de la fábrica.',
     text: 'El plazo para registrar códigos ha terminado. Muy pronto podrás consultar aquí los ganadores de esta edición.',
     href: isLoggedIn ? '/dashboard' : '/registro',
@@ -68,7 +64,6 @@ const campaignCopy = {
     note: 'Los ganadores se publicarán según las bases legales.',
   },
   winners: {
-    status: 'Los resultados de 2026 ya están aquí',
     title: 'La ilusión ya tiene ganadores.',
     text: 'Descubre quiénes se llevan los premios de esta edición de Big Ibai. ¡Gracias por acompañarnos un diciembre más!',
     href: '/ganadores',
@@ -79,10 +74,10 @@ const campaignCopy = {
 
 // Cifras de la franja bajo el hero. Los premios deben coincidir con las bases legales de la edición
 const highlights = [
-  { value: CAMPAIGN.totalDays, label: 'chocolatinas' },
-  { value: CAMPAIGN.totalDays, label: 'premios' },
-  { value: 1, label: 'casilla nueva cada día' },
-]
+  { value: CAMPAIGN.totalDays, label: 'chocolatinas', icon: 'chocolate' },
+  { value: CAMPAIGN.totalDays, label: 'premios', icon: 'gift' },
+  { value: 1, label: 'casilla nueva cada día', icon: 'door' },
+] as const
 ---
 
 <FactoryIntro {campaignCopy} {calendarProgress} {highlights} />
@@ -92,7 +87,6 @@ const highlights = [
   <Calendar />
 </Container>
 <StoreLocator />
-<CampaignStatus {campaignCopy} />
 
 <style>
   .calendar-wrap {
