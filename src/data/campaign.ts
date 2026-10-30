@@ -12,6 +12,9 @@ export const CAMPAIGN = {
   // Inicio de sesión y alta de cuentas (Google y enlace mágico).
   // Desactivado mientras se limpia la base de datos de la edición anterior.
   signInEnabled: false,
+  // Enlace mágico por email (solo cuenta si signInEnabled está activo). Con false solo se entra
+  // con Google.
+  emailSignInEnabled: true,
 
   // Pendientes de las bases legales 2026. Mientras sean null el registro no se abre.
   // Referencia 2025: '2025-10-22T00:00:00+02:00' → '2025-12-23T23:59:59+01:00'

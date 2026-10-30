@@ -7,7 +7,7 @@ import { parseSimulatedDate } from '@/utils/campaign'
 
 const protectedRoutes = ['/dashboard', '/admin']
 const redirectRoutes = ['/registro']
-const publicRoutes = ['/aviso-legal', '/bases-legales', '/politica-de-cookies', '/privacidad', '/api/locations', '/api/auth/signin', '/api/auth/callback', '/api/auth/signout']
+const publicRoutes = ['/aviso-legal', '/bases-legales', '/politica-de-cookies', '/privacidad', '/api/auth/signin', '/api/auth/callback', '/api/auth/signout']
 
 const SIMULATED_DATE_PARAM = 'fecha'
 const SIMULATED_DATE_COOKIE = 'fecha-simulada'
@@ -107,6 +107,13 @@ const canonicalHost = defineMiddleware((context, next) => {
   return context.redirect(url.toString(), 308)
 })
 
+const blockFormActions = defineMiddleware((context, next) => {
+  if (context.request.method === 'POST' && context.url.searchParams.has('_action')) {
+    return new Response(null, { status: 404 })
+  }
+  return next()
+})
+
 const securityHeaders = defineMiddleware(async (context, next) => {
   const response = await next()
 
@@ -140,7 +147,7 @@ const auth = defineMiddleware(async (context, next) => {
   const { data } = await supabase.auth.getClaims()
   let claims = data?.claims
 
-  if (claims && isPasswordSession(claims.amr)) {
+  if (claims && (isPasswordSession(claims.amr) || claims.is_anonymous)) {
     await supabase.auth.signOut({ scope: 'local' })
     claims = undefined
   }
@@ -166,4 +173,4 @@ const auth = defineMiddleware(async (context, next) => {
   return next()
 })
 
-export const onRequest = sequence(securityHeaders, canonicalHost, auth)
+export const onRequest = sequence(securityHeaders, canonicalHost, blockFormActions, auth)

@@ -38,9 +38,9 @@ export default defineConfig({
   env: {
     schema: {
       PUBLIC_SUPABASE_URL: envField.string({ context: 'server', access: 'secret' }),
-      // Clave secreta (sb_secret_…) del cliente de Auth: Supabase solo acepta Sb-Forwarded-For con ella
+      // Clave secreta (sb_secret_…) de los dos clientes de Supabase. Sb-Forwarded-For solo se acepta con
+      // una clave de este tipo
       SUPABASE_SECRET_KEY: envField.string({ context: 'server', access: 'secret' }),
-      SUPABASE_ADMIN_KEY: envField.string({ context: 'server', access: 'secret' }),
       TURNSTILE_SECRET_KEY: envField.string({ context: 'server', access: 'secret', optional: true }),
       COUPON_HMAC_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),
       ENCRYPTION_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),

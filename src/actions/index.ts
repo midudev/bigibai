@@ -5,6 +5,7 @@ import { z } from 'astro:schema'
 import { supabaseAdmin } from '@/supabase-admin'
 import { createClient } from '@/supabase'
 import { hashCoupon } from '@/utils/crypto'
+import { isValidCouponFormat, normalizeCoupon } from '@/utils/coupon'
 import { emailSchema } from '@/validations/email'
 import { grantAchievement } from '@/utils/achievements'
 import { isAdmin } from '@/utils/admin'
@@ -17,20 +18,6 @@ import { cells, type GameType } from '@/data/days-data'
 // y x-real-ip los puede mandar cualquiera y servirían para saltarse el rate limit por IP
 function getClientIp(ctx: ActionAPIContext): string {
   return ctx.request.headers.get('cf-connecting-ip') || ctx.clientAddress || 'unknown'
-}
-
-// Valida el formato del cupón XXXX-XXXX-XXXX
-function validateCouponFormat(coupon: string): boolean {
-  const pattern = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/
-  return pattern.test(coupon)
-}
-
-// Normaliza el cupón a mayúsculas y elimina caracteres no válidos
-function normalizeCoupon(coupon: string): string {
-  return coupon
-    .toUpperCase()
-    .replace(/[^A-Z0-9-]/g, '') // Solo letras, números y guiones
-    .replace(/-+/g, '-') // Múltiples guiones a uno solo
 }
 
 // Las mismas condiciones que la página de la casilla para mostrar el juego: la experiencia está
@@ -60,31 +47,24 @@ export const server = {
       captchaToken: z.string().min(1).max(2048),
     }),
     async handler({ email, captchaToken }, ctx) {
-      if (!CAMPAIGN.signInEnabled) {
+      if (!CAMPAIGN.signInEnabled || !CAMPAIGN.emailSignInEnabled) {
         throw new ActionError({
           code: 'FORBIDDEN',
-          message: 'El acceso está desactivado temporalmente',
+          message: 'El acceso por email está desactivado temporalmente',
         })
       }
 
       const ip = getClientIp(ctx)
 
-      // Rate limiting estricto para magic links
-      const [byEmail, byIp] = await Promise.all([
-        checkRateLimit('magicLinkEmail', email),
-        checkRateLimit('magicLinkIp', ip),
-      ])
-
-      const failed = (!byEmail && 'email') || (!byIp && 'ip') || null
-
-      if (failed) {
-        console.warn('[RATE_LIMIT_BLOCK_MAGIC_LINK]', { bucket: failed, ip })
-
-        throw new ActionError({
-          code: 'TOO_MANY_REQUESTS',
-          message: RATE_LIMIT_MESSAGE,
-        })
+      const rateLimited = (bucket: 'email' | 'ip') => {
+        console.warn('[RATE_LIMIT_BLOCK_MAGIC_LINK]', { bucket, ip })
+        return new ActionError({ code: 'TOO_MANY_REQUESTS', message: RATE_LIMIT_MESSAGE })
       }
+
+      // La IP se cuenta antes del CAPTCHA (cada validación es una petición a Cloudflare) y el email
+      // después: si no, cualquiera podría dejar sin enlace a otra persona pidiendo uno para su email
+      // cada minuto, sin resolver el desafío
+      if (!(await checkRateLimit('magicLinkIp', ip))) throw rateLimited('ip')
 
       if (!(await verifyTurnstile(captchaToken, ip))) {
         throw new ActionError({
@@ -93,6 +73,8 @@ export const server = {
             'No hemos podido comprobar que no eres un robot. Recarga la página e inténtalo de nuevo.',
         })
       }
+
+      if (!(await checkRateLimit('magicLinkEmail', email))) throw rateLimited('email')
 
       try {
         const supabase = createClient({ request: ctx.request, cookies: ctx.cookies })
@@ -196,7 +178,7 @@ export const server = {
       // Normalizar y validar formato del cupón
       const normalizedCoupon = normalizeCoupon(coupon)
 
-      if (!validateCouponFormat(normalizedCoupon)) {
+      if (!isValidCouponFormat(normalizedCoupon)) {
         throw new ActionError({
           code: 'BAD_REQUEST',
           message: 'El formato del cupón debe ser XXXX-XXXX-XXXX (solo letras y números)',
@@ -255,36 +237,21 @@ export const server = {
             })
           }
 
-          // Crear nuevo registro duplicado y actualizar el original
-          const [insertResult, updateResult] = await Promise.all([
-            supabaseAdmin
-              .from('coupons')
-              .insert({
-                hash: `${existingCoupon.hash}_1`,
-                original_hash: existingCoupon.hash,
-                is_used: true,
-                used_at: new Date().toISOString(),
-                used_by: user.id,
-                used_ip: ip,
-                is_reactivable: false,
-              })
-              .select('id')
-              .single(),
-            // Actualizar el cupón original para que no pueda ser reutilizado de nuevo
-            supabaseAdmin
-              .from('coupons')
-              .update({ is_reactivable: false })
-              .eq('id', existingCoupon.id),
-          ])
+          // Se reserva el segundo uso quitando is_reactivable con el filtro is_reactivable = true:
+          // si dos usuarios lo canjean a la vez, solo una petición actualiza la fila
+          const { data: claimedCoupon, error: claimError } = await supabaseAdmin
+            .from('coupons')
+            .update({ is_reactivable: false })
+            .eq('id', existingCoupon.id)
+            .eq('is_reactivable', true)
+            .select('id')
+            .maybeSingle()
 
-          const { data: newCoupon, error: insertError } = insertResult
-          const { error: updateError } = updateResult
-
-          if (insertError || !newCoupon) {
-            console.error('[COUPON_DUPLICATE_ERROR]', {
+          if (claimError) {
+            console.error('[COUPON_REACTIVABLE_UPDATE_ERROR]', {
               ip,
               couponId: existingCoupon.id,
-              error: insertError,
+              error: claimError,
             })
             throw new ActionError({
               code: 'INTERNAL_SERVER_ERROR',
@@ -292,13 +259,52 @@ export const server = {
             })
           }
 
-          if (updateError) {
-            console.error('[COUPON_REACTIVABLE_UPDATE_ERROR]', {
+          if (!claimedCoupon) {
+            throw new ActionError({
+              code: 'BAD_REQUEST',
+              message: 'Este cupón ya ha sido reutilizado el máximo de veces permitidas',
+            })
+          }
+
+          const { data: newCoupon, error: insertError } = await supabaseAdmin
+            .from('coupons')
+            .insert({
+              hash: duplicateHash,
+              original_hash: existingCoupon.hash,
+              is_used: true,
+              used_at: new Date().toISOString(),
+              used_by: user.id,
+              used_ip: ip,
+              is_reactivable: false,
+            })
+            .select('id')
+            .single()
+
+          if (insertError || !newCoupon) {
+            console.error('[COUPON_DUPLICATE_ERROR]', {
               ip,
               couponId: existingCoupon.id,
-              error: updateError,
+              error: insertError,
             })
-            // No lanzamos error aquí porque el cupón duplicado ya se creó exitosamente
+
+            // 23505: el duplicado ya existe (hash es único), así que el cupón ya no se puede reusar
+            if (insertError?.code === '23505') {
+              throw new ActionError({
+                code: 'BAD_REQUEST',
+                message: 'Este cupón ya ha sido reutilizado el máximo de veces permitidas',
+              })
+            }
+
+            // Cualquier otro fallo: se le devuelve el segundo uso para que se pueda volver a intentar
+            await supabaseAdmin
+              .from('coupons')
+              .update({ is_reactivable: true })
+              .eq('id', existingCoupon.id)
+
+            throw new ActionError({
+              code: 'INTERNAL_SERVER_ERROR',
+              message: 'Error al procesar el cupón',
+            })
           }
 
           couponData = newCoupon
@@ -344,9 +350,9 @@ export const server = {
         }
 
         // Obtener el número total de cupones validados por este usuario
-        const { data: userCoupons, error: countError } = await supabaseAdmin
+        const { count, error: countError } = await supabaseAdmin
           .from('coupons')
-          .select('id')
+          .select('id', { count: 'exact', head: true })
           .eq('used_by', user.id)
           .eq('is_used', true)
 
@@ -357,7 +363,7 @@ export const server = {
           })
         }
 
-        const totalCoupons = userCoupons?.length ?? 1
+        const totalCoupons = count ?? undefined
 
         // Grant achievement based on total coupons redeemed
         const achievementId = totalCoupons === 1 ? 'calendar-redeemed'

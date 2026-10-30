@@ -486,9 +486,11 @@ const { userName, uniqueUsersCount, totalCouponsUsed, averageCouponsPerUser, cla
       couponLoading.classList.remove('hidden')
 
       try {
-        const response = await fetch(
-          `/api/admin/validate-coupon?coupon=${encodeURIComponent(coupon)}`
-        )
+        const response = await fetch('/api/admin/validate-coupon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coupon }),
+        })
         const data = await response.json()
 
         hideAllCouponStates()

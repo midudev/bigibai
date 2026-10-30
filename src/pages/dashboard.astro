@@ -12,7 +12,11 @@ if (!user) {
 
 // Obtener el número de cupones validados por el usuario y sus logros en paralelo
 const [userCouponsResult, achievementsResult] = await Promise.all([
-  supabaseAdmin.from('coupons').select('used_at').eq('used_by', user.id).eq('is_used', true),
+  supabaseAdmin
+    .from('coupons')
+    .select('id', { count: 'exact', head: true })
+    .eq('used_by', user.id)
+    .eq('is_used', true),
   supabaseAdmin
     .from('user_achievements')
     .select('achievements')
@@ -20,7 +24,7 @@ const [userCouponsResult, achievementsResult] = await Promise.all([
     .maybeSingle(),
 ])
 
-const totalCoupons = userCouponsResult.data?.length || 0
+const totalCoupons = userCouponsResult.count || 0
 const userAchievements = achievementsResult.data?.achievements ?? {}
 ---
 

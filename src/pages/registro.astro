@@ -38,7 +38,11 @@ if (user) return Astro.redirect('/dashboard')
         as="h2"
         size="section"
         title="Inicia sesión"
-        description="Elige cómo quieres entrar en tu cuenta."
+        description={
+          CAMPAIGN.emailSignInEnabled
+            ? 'Elige cómo quieres entrar en tu cuenta.'
+            : 'Entra en tu cuenta con Google.'
+        }
       />
       {CAMPAIGN.signInEnabled ? (
       <div id="login-section" class="login-options">
@@ -61,6 +65,8 @@ if (user) return Astro.redirect('/dashboard')
             Continuar con Google
           </Button>
         </form>
+        {CAMPAIGN.emailSignInEnabled && (
+        <>
         <div class="ui-divider">o con tu correo</div>
         <form id="magic-link-form" class="space-y-4">
           <Field
@@ -88,8 +94,10 @@ if (user) return Astro.redirect('/dashboard')
             </svg>
           </Button>
           <p class="login-hint">Te enviaremos un enlace para entrar, sin contraseña.</p>
-          <div id="message" class="ui-notice hidden" role="status" aria-live="polite"></div>
         </form>
+        </>
+        )}
+        <div id="message" class="ui-notice hidden" role="status" aria-live="polite"></div>
       </div>
       ) : (
         <Notice variant="warning" title="Acceso cerrado temporalmente" class="login-options">
@@ -185,6 +193,23 @@ if (user) return Astro.redirect('/dashboard')
   import { showNotice } from '@/components/ui/feedback'
   import { createCaptcha } from '@/utils/turnstile'
   document.addEventListener('astro:page-load', () => {
+    const message = document.querySelector<HTMLElement>('#login-section #message')
+    if (!message) return
+    function showMessage(value: string, isError = false) {
+      showNotice(message!, value, isError ? 'error' : 'success')
+    }
+    const url = new URL(location.href)
+    const loginError = url.searchParams.get('error')
+    if (loginError) {
+      showMessage(
+        loginError === 'email_disabled'
+          ? 'Por ahora solo se puede entrar con Google.'
+          : 'No se ha podido iniciar sesión. Inténtalo de nuevo.',
+        true
+      )
+      url.searchParams.delete('error')
+      history.replaceState({}, '', url)
+    }
     const form = document.querySelector<HTMLFormElement>('#magic-link-form')
     if (!form || form.dataset.ready) return
     form.dataset.ready = 'true'
@@ -194,10 +219,6 @@ if (user) return Astro.redirect('/dashboard')
     const button = form.querySelector<HTMLButtonElement>('#magic-link-btn')!
     const text = form.querySelector<HTMLElement>('#magic-link-text')!
     const spinner = form.querySelector<HTMLElement>('#magic-link-spinner')!
-    const message = form.querySelector<HTMLElement>('#message')!
-    function showMessage(value: string, isError = false) {
-      showNotice(message, value, isError ? 'error' : 'success')
-    }
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
       button.disabled = true
@@ -241,11 +262,5 @@ if (user) return Astro.redirect('/dashboard')
         spinner.classList.add('hidden')
       }
     })
-    const url = new URL(location.href)
-    if (url.searchParams.has('error')) {
-      showMessage('No se ha podido iniciar sesión. Inténtalo de nuevo.', true)
-      url.searchParams.delete('error')
-      history.replaceState({}, '', url)
-    }
   })
 </script>

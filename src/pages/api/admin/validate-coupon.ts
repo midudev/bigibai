@@ -2,8 +2,9 @@ import type { APIRoute } from 'astro'
 import { supabaseAdmin } from '@/supabase-admin'
 import { isAdmin } from '@/utils/admin'
 import { hashCoupon } from '@/utils/crypto'
+import { normalizeCoupon } from '@/utils/coupon'
 
-export const GET: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request, locals }) => {
   // Verificar autenticación
   if (!locals.user) {
     return new Response(JSON.stringify({ error: 'No autenticado' }), {
@@ -20,9 +21,8 @@ export const GET: APIRoute = async ({ request, locals }) => {
     })
   }
 
-  // Obtener el hash del cupón de la query
-  const url = new URL(request.url)
-  const couponCode = url.searchParams.get('coupon')
+  const body = await request.json().catch(() => null)
+  const couponCode = typeof body?.coupon === 'string' ? normalizeCoupon(body.coupon) : ''
 
   if (!couponCode) {
     return new Response(JSON.stringify({ error: 'Cupón no proporcionado' }), {

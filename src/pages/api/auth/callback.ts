@@ -26,6 +26,12 @@ export const GET: APIRoute = async ({ request, url, cookies, redirect }) => {
     return redirect('/registro?error=no_code')
   }
 
+  // Los enlaces del email llegan con type=otp: sin esto se podría seguir entrando con uno
+  // pedido directamente a la API de Supabase
+  if (providerType === 'otp' && !CAMPAIGN.emailSignInEnabled) {
+    return redirect('/registro?error=email_disabled')
+  }
+
   const supabase = createClient({ request, cookies })
 
   try {
