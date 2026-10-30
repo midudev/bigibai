@@ -3,8 +3,7 @@ import Calendar from './Calendar.astro'
 import Container from '@/components/ui/Container.astro'
 import FactoryIntro from './home/FactoryIntro.astro'
 import Participation from './home/Participation.astro'
-// Sección de llaveros oculta por ahora
-// import Keychains from './home/Keychains.astro'
+import Keychains from './home/Keychains.astro'
 import StoreLocator from './home/StoreLocator.astro'
 import { CAMPAIGN } from '@/data/campaign'
 import {
@@ -82,10 +81,10 @@ const highlights = [
 
 <FactoryIntro {campaignCopy} {calendarProgress} {highlights} />
 <Participation {isLoggedIn} />
-{/* <Keychains /> */}
 <Container class="calendar-wrap">
   <Calendar />
 </Container>
+<Keychains />
 <StoreLocator />
 
 <style>

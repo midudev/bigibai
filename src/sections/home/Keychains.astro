@@ -6,162 +6,383 @@ import { keychains } from '@/data/keychains'
 
 <section id="llaveros" class="keychains-section" aria-labelledby="keychains-title">
   <Container>
-    <SectionHeading
-      as="h2"
-      id="keychains-title"
-      align="center"
-      eyebrow="Los nuevos llaveros de Big Ibai"
-      title="Pequeños. Pero muy grandes."
-      description="Tres diseños con mucho de nuestro universo. Lo difícil va a ser elegir tu favorito."
-      class="keychains-heading"
-    />
-    <div class="keychains-grid">
-      {keychains.map((keychain) => (
-        <figure class:list={['keychain', keychain.className]}>
-          <div class="keychain-visual">
-            <span class="keychain-halo" aria-hidden="true"></span>
-            <img
-              src={`/2026/llavero-${keychain.image}.webp`}
-              alt={`Llavero de ${keychain.name}`}
-              width="360"
-              height="520"
-              loading="lazy"
-            />
-          </div>
-          <figcaption>
+    <div class="keychains-intro">
+      <SectionHeading as="h2" id="keychains-title">
+        <Fragment slot="title">
+          Un llavero
+          <br />
+          asegurado.
+        </Fragment>
+      </SectionHeading>
+      <p class="guarantee-seal">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="m12 1.5 2.6 2 3.2-.4 1.2 3 3 1.2-.4 3.2 2 2.6-2 2.6.4 3.2-3 1.2-1.2 3-3.2-.4-2.6 2-2.6-2-3.2.4-1.2-3-3-1.2.4-3.2-2-2.6 2-2.6-.4-3.2 3-1.2 1.2-3 3.2.4Z"
+            fill="currentColor"></path>
+          <path
+            d="m7.8 12.2 2.8 2.8 5.6-6"
+            stroke="var(--brand-accent)"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"></path>
+        </svg>
+        <span>Uno en cada</span>
+        <strong>calendario</strong>
+      </p>
+    </div>
+
+    <keychain-rail class="keychain-rail">
+      <span class="rail-bar" aria-hidden="true"></span>
+      <ul class="keychains-list">
+        {keychains.map((keychain, index) => (
+          <li
+            class:list={['keychain', keychain.className]}
+            style={`--ring-x: ${keychain.ringX}; --delay: ${index * 0.18}s`}
+          >
+            <div class="keychain-hanger">
+              <svg class="keychain-hook" viewBox="0 0 24 56" aria-hidden="true">
+                <path d="M15 0v38a7 7 0 1 1-14 0v-5" />
+              </svg>
+              <span class="keychain-glow" aria-hidden="true"></span>
+              <img
+                class="keychain-img"
+                src={`/2026/llavero-${keychain.image}.webp`}
+                alt={`Llavero de ${keychain.name}`}
+                width="520"
+                height={keychain.height}
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
             <h3>{keychain.name}</h3>
             <p>{keychain.description}</p>
-          </figcaption>
-        </figure>
-      ))}
-    </div>
+          </li>
+        ))}
+      </ul>
+    </keychain-rail>
   </Container>
 </section>
 
+<script>
+  class KeychainRail extends HTMLElement {
+    private controller?: AbortController
+
+    connectedCallback() {
+      this.controller?.abort()
+      this.controller = new AbortController()
+      const { signal } = this.controller
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+      const keychains = [...this.querySelectorAll<HTMLElement>('.keychain')]
+      const swing = (keychain: HTMLElement, direction: number, delay = 0) => {
+        if (keychain.hasAttribute('data-swinging')) return
+        keychain.style.setProperty('--swing', `${direction * 14}deg`)
+        keychain.style.setProperty('--swing-delay', `${delay}s`)
+        keychain.setAttribute('data-swinging', '')
+      }
+
+      for (const keychain of keychains) {
+        const hanger = keychain.querySelector<HTMLElement>('.keychain-hanger')!
+        const push = (event: PointerEvent) => {
+          const { left, width } = hanger.getBoundingClientRect()
+          swing(keychain, event.clientX < left + width / 2 ? -1 : 1)
+        }
+        hanger.addEventListener('pointerenter', push, { signal })
+        hanger.addEventListener('pointerdown', push, { signal })
+        keychain.addEventListener(
+          'animationend',
+          () => keychain.removeAttribute('data-swinging'),
+          { signal }
+        )
+      }
+
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (!entry.isIntersecting) return
+          keychains.forEach((keychain, index) =>
+            swing(keychain, index % 2 ? 1 : -1, index * 0.18)
+          )
+          observer.disconnect()
+        },
+        { threshold: 0.45 }
+      )
+      observer.observe(this)
+      signal.addEventListener('abort', () => observer.disconnect(), { once: true })
+    }
+
+    disconnectedCallback() {
+      this.controller?.abort()
+    }
+  }
+
+  if (!customElements.get('keychain-rail')) customElements.define('keychain-rail', KeychainRail)
+</script>
+
 <style>
   .keychains-section {
-    padding: 68px 0 60px;
-    background: color-mix(in srgb, var(--surface) 53.33%, transparent);
+    --rail-top: 34px;
+    --hook-height: 56px;
+    --keychain-width: 186px;
+    position: relative;
+    margin-bottom: 84px;
+    padding-block: 84px 72px;
+    background:
+      radial-gradient(ellipse 60% 55% at 50% 72%, #2f4f9a40, transparent 70%),
+      color-mix(in srgb, var(--surface) 53.33%, transparent);
     border-block: 1px solid color-mix(in srgb, var(--text-heading) 6.27%, transparent);
+    overflow-x: clip;
     scroll-margin-top: 25px;
   }
-  .keychains-heading {
-    text-align: center;
-  }
-  .keychains-heading h2 {
-    text-align: center;
-  }
-  .keychains-heading > p:last-child {
-    margin-top: 20px;
-    color: var(--text-copy);
-    font-size: 13px;
-    line-height: 1.9;
-  }
-  .keychains-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 30px;
-    max-width: 1000px;
-    margin: 22px auto 0;
-  }
-  .keychain {
-    text-align: center;
-    margin: 0;
-  }
-  .keychain-visual {
-    position: relative;
+
+  .keychains-intro {
     display: flex;
     align-items: center;
-    justify-content: center;
-    height: 300px;
+    justify-content: space-between;
+    gap: 24px;
   }
-  .keychain-visual img {
-    position: relative;
-    z-index: 1;
-    width: 185px;
-    height: 264px;
-    object-fit: contain;
-    filter: drop-shadow(0 16px 12px #0005);
-    transition: transform 0.3s ease;
-  }
-  .keychain:hover img {
-    transform: translateY(-8px) rotate(-4deg);
-  }
-  .keychain.ronin img {
-    width: 215px;
-    transform: rotate(4deg);
-  }
-  .keychain.ronin:hover img {
-    transform: translateY(-8px) rotate(0deg);
-  }
-  .keychain-halo {
-    position: absolute;
-    inset: 21% 10% 10%;
+  .guarantee-seal {
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    width: 150px;
+    aspect-ratio: 1;
+    border: 1px solid #ffcf71;
     border-radius: 50%;
-    background: radial-gradient(ellipse, #414b9959, transparent 70%);
+    background:
+      radial-gradient(circle at 32% 26%, #ffe2a3, transparent 48%),
+      var(--brand-accent);
+    color: var(--brand-ink);
+    line-height: 1.15;
+    text-align: center;
+    box-shadow:
+      0 4px 0 var(--brand-edge),
+      0 14px 28px #0006;
+    rotate: 8deg;
   }
-  .glove .keychain-halo {
-    background: radial-gradient(ellipse, #be34582b, transparent 70%);
+  .guarantee-seal svg {
+    margin-bottom: 6px;
   }
-  .koi .keychain-halo {
-    background: radial-gradient(ellipse, #15a2ac30, transparent 70%);
+  .guarantee-seal span {
+    font-size: 14px;
+    font-weight: bold;
+  }
+  .guarantee-seal strong {
+    font-family: var(--font-display);
+    font-size: 25px;
+    font-weight: normal;
+  }
+
+  /* Raíl de la fábrica: los llaveros cuelgan de un gancho y se balancean desde la anilla */
+  .keychain-rail {
+    position: relative;
+    display: block;
+    margin-top: 56px;
+    padding-top: var(--rail-top);
+  }
+  .rail-bar {
+    position: absolute;
+    top: var(--rail-top);
+    left: 0;
+    right: 0;
+    height: 10px;
+    border-radius: 5px;
+    background: linear-gradient(180deg, #f1f5fb, #a9b6cb 40%, #5d6b88 85%, #47536c);
+    box-shadow:
+      0 1px 0 #ffffff4d inset,
+      0 8px 14px #0007;
+    translate: 0 -50%;
+  }
+  .keychains-list {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: auto auto 1fr;
+    gap: 0 clamp(12px, 3vw, 40px);
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0;
+    list-style: none;
+  }
+  /* El subgrid alinea los nombres aunque cada llavero cuelgue a una altura distinta */
+  .keychain {
+    --swing: 14deg;
+    display: grid;
+    grid-row: span 3;
+    grid-template-rows: subgrid;
+    justify-items: center;
+    text-align: center;
+  }
+  .keychain-hanger {
+    position: relative;
+    align-self: start;
+    width: var(--keychain-width);
+    padding-top: calc(var(--hook-height) * 0.8 - var(--keychain-width) * 0.025);
+    cursor: grab;
+    touch-action: manipulation;
+  }
+  .keychain-hook {
+    position: absolute;
+    top: -2px;
+    left: calc(var(--ring-x) - var(--hook-height) * 8 / 56);
+    width: calc(var(--hook-height) * 24 / 56);
+    height: var(--hook-height);
+    overflow: visible;
+    fill: none;
+    stroke: #c3cddd;
+    stroke-width: 3.5;
+    stroke-linecap: round;
+    filter: drop-shadow(0 2px 2px #0007);
+  }
+  .keychain-glow {
+    position: absolute;
+    inset: 30% -24% -4%;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, var(--glow), transparent);
+    pointer-events: none;
+  }
+  .keychain-img {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(0 18px 14px #0006);
+    transform-origin: var(--ring-x) 2%;
+    -webkit-user-drag: none;
+    user-select: none;
+  }
+  .keychain[data-swinging] .keychain-img {
+    animation: keychain-swing 2.6s ease-in-out var(--swing-delay, 0s) both;
+  }
+  .glove {
+    --glow: #e8413c4d;
+  }
+  .ronin {
+    --glow: #dfe7ff2e;
+  }
+  .ronin .keychain-hanger {
+    width: calc(var(--keychain-width) * 1.12);
+  }
+  .koi {
+    --glow: #15a2ac4d;
   }
   .keychain h3 {
+    margin-top: 22px;
     color: var(--brand-accent);
     font-family: var(--font-display);
+    font-size: 28px;
     font-weight: normal;
-    font-size: 27px;
+    line-height: 1.1;
   }
-  .keychain figcaption p {
-    margin-top: 7px;
-    color: var(--text-muted);
-    font-size: 11px;
+  .keychain p {
+    max-width: 24ch;
+    margin-top: 8px;
+    color: var(--text-copy);
+    font-size: 16px;
+    line-height: 1.6;
+    text-wrap: balance;
+  }
+
+  @keyframes keychain-swing {
+    0% {
+      rotate: 0deg;
+    }
+    14% {
+      rotate: var(--swing);
+    }
+    32% {
+      rotate: calc(var(--swing) * -0.62);
+    }
+    50% {
+      rotate: calc(var(--swing) * 0.36);
+    }
+    67% {
+      rotate: calc(var(--swing) * -0.18);
+    }
+    83% {
+      rotate: calc(var(--swing) * 0.07);
+    }
+    100% {
+      rotate: 0deg;
+    }
+  }
+
+  @media (max-width: 1050px) {
+    .keychains-section {
+      --keychain-width: 150px;
+      --hook-height: 50px;
+    }
+    .keychain h3 {
+      font-size: 24px;
+    }
+    .keychain p {
+      font-size: 15px;
+    }
+    .guarantee-seal {
+      width: 132px;
+    }
+    .guarantee-seal span {
+      font-size: 12px;
+    }
+    .guarantee-seal strong {
+      font-size: 21px;
+    }
   }
   @media (max-width: 760px) {
     .keychains-section {
-      padding-block: 46px 38px;
+      --rail-top: 26px;
+      --hook-height: 40px;
+      --keychain-width: min(27vw, 120px);
+      margin-bottom: 56px;
+      padding-block: 56px 44px;
     }
-    .keychains-heading h2 {
-      max-width: 300px;
-      margin-inline: auto !important;
-      text-align: center;
+    .keychains-intro {
+      gap: 12px;
     }
-    .keychains-heading > p:last-child {
-      font-size: 12px;
-      margin-top: 16px;
+    .guarantee-seal {
+      width: 104px;
     }
-    .keychains-grid {
-      gap: 5px;
-      margin-top: 15px;
+    .guarantee-seal svg {
+      width: 22px;
+      margin-bottom: 4px;
     }
-    .keychain-visual {
-      height: 190px;
+    .guarantee-seal span {
+      font-size: 10px;
     }
-    .keychain-visual img {
-      width: 110px;
-      height: 160px;
+    .guarantee-seal strong {
+      font-size: 16px;
     }
-    .keychain.ronin img {
-      width: 125px;
+    .keychain-rail {
+      margin-top: 36px;
+    }
+    .rail-bar {
+      left: calc(var(--page-gutter) * -1);
+      right: calc(var(--page-gutter) * -1);
+      height: 8px;
+    }
+    .keychains-list {
+      gap: 6px;
+    }
+    .keychain-hook {
+      stroke-width: 3;
     }
     .keychain h3 {
-      font-size: 22px;
+      margin-top: 16px;
+      font-size: 20px;
     }
-    .keychain figcaption p {
-      font-size: 9px;
-      line-height: 1.7;
-      padding-inline: 3px;
-    }
-    .keychain-halo {
-      inset: 30% 0 10%;
+    .keychain p {
+      font-size: 13px;
     }
   }
   @media (max-width: 370px) {
-    .keychain-visual {
-      height: 160px;
+    .guarantee-seal {
+      width: 92px;
     }
-    .keychain-visual img {
-      height: 140px;
+    .guarantee-seal strong {
+      font-size: 14px;
+    }
+    .keychain p {
+      font-size: 12px;
     }
   }
 </style>
