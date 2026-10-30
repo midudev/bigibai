@@ -40,11 +40,9 @@ function withVideoHeaders(response: Response) {
 
 export const GET: APIRoute = async ({ request, url }) => {
   const range = request.headers.get('Range')
-  const asset = await env.ASSETS.fetch(
-    new Request(new URL(SOURCE, url), { headers: range ? { Range: range } : {} })
-  )
+  const asset = await env.ASSETS.fetch(new Request(new URL(SOURCE, url)))
   const size = Number(asset.headers.get('Content-Length'))
-  if (!range || !asset.ok || asset.status === 206 || !asset.body || !size) {
+  if (!range || asset.status !== 200 || !asset.body || !size) {
     return withVideoHeaders(asset)
   }
 
