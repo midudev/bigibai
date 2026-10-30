@@ -55,6 +55,28 @@ De entre los Participantes de la Promoción resultará 1 ganador por premio y/o 
 
 ## 4. PREMIOS
 
+Los veinticuatro (24) premios descritos a continuación corresponden a las casillas del Calendario de Adviento BIG IBAI 2026, del 1 al 24 de diciembre.
+
+Cada premio será adjudicado a un único ganador, de acuerdo con el procedimiento establecido en las bases legales de la promoción.
+
+Los premios son personales e intransferibles, salvo autorización expresa de SALAD BRANDS, S.L., y no podrán canjearse por dinero en efectivo.
+
+Cuando un premio incluya acompañantes, su número máximo será el indicado en la descripción correspondiente.
+
+En caso de indisponibilidad sobrevenida, cancelación o imposibilidad justificada de entrega, SALAD BRANDS podrá sustituir el premio por otro de características similares y valor económico equivalente o superior, respetando las condiciones de las bases legales y la normativa aplicable.
+
+Los gastos no expresamente incluidos serán asumidos por el ganador. Las obligaciones fiscales se regirán por la cláusula 5 de las bases legales.
+
+### Condiciones complementarias de entrega y disfrute
+
+- **Disponibilidad.** Los productos y experiencias estarán sujetos a la disponibilidad de los fabricantes, distribuidores, establecimientos y operadores correspondientes, sin que ello permita reducir unilateralmente el valor o las características esenciales de los premios.
+- **Reservas y fechas.** Los viajes y experiencias deberán disfrutarse dentro de los periodos específicos publicados para cada premio. Las fechas y las condiciones de reserva se comunicarán al ganador y estarán sujetas a las limitaciones previamente anunciadas.
+- **Documentación.** SALAD BRANDS podrá requerir la documentación necesaria para verificar la identidad, residencia, edad, titularidad y cumplimiento de los requisitos de entrega o disfrute.
+- **Gastos excluidos.** Salvo indicación expresa en la descripción particular del premio, no se incluirán gastos personales, seguros adicionales, dietas, desplazamientos, visados, combustible, propinas ni servicios complementarios.
+- **Fiscalidad.** Los premios estarán sujetos a la regulación fiscal recogida en la cláusula 5 de las bases legales.
+- **Sustitución.** En circunstancias justificadas ajenas al control razonable de SALAD BRANDS, los premios podrán sustituirse por alternativas de características similares y valor económico equivalente o superior.
+- **Prevalencia.** Las condiciones particulares de cada premio prevalecerán respecto de las disposiciones generales en lo referente a los servicios, gastos y prestaciones expresamente incluidos, siempre dentro de los límites legales aplicables.
+
 Se sortearán veinticuatro (24) premios, uno por cada casilla del 1 al 24 de diciembre, con las categorías y denominaciones resumidas recogidas en la siguiente tabla.
 
 | Día | Categoría | Premio |
@@ -83,10 +105,6 @@ Se sortearán veinticuatro (24) premios, uno por cada casilla del 1 al 24 de dic
 | 22/12 | Planes Increíbles | 12 conciertos en un año |
 | 23/12 | Planes Increíbles | Ruta 66 durante 17 días para 2 |
 | 24/12 | Premio Legendario | Vuelta al mundo para 2 - 15 días |
-
-Los detalles completos de los premios se actualizarán durante los próximos días en [www.bigibai.com/bases-legales/](https://www.bigibai.com/bases-legales/), incluyendo, antes de su adjudicación, sus características, valoración económica, proveedores y condiciones específicas de disfrute o entrega. Cualquier aclaración respetará la oferta anunciada y los derechos de los participantes.
-
-Los nombres indicados son resúmenes comerciales y no sustituyen la descripción detallada definitiva. En particular, el vehículo de la casilla 16 está pendiente de definir; las condiciones y el modelo deberán publicarse de forma transparente. Los premios no se canjearán por dinero, salvo exigencia legal.
 
 SALAD BRANDS se reserva el derecho de sustituir cualquiera de los premios anunciados por otro de características similares y valor económico equivalente o superior, exclusivamente cuando concurran causas justificadas, como falta de disponibilidad, cancelación del proveedor, fuerza mayor o circunstancias ajenas a su control.
 
@@ -146,7 +164,7 @@ SALAD BRANDS queda facultada para excluir a los Participantes que no cumplan con
 
 Cuando el premio esté sujeto a garantía del fabricante o del proveedor, por lo que, en caso de fallo o mal funcionamiento del artículo, los Ganadores deberán dirigirse al servicio técnico del proveedor o fabricante del mismo, quedando SALAD BRANDS exonerada de cualquier responsabilidad derivada del fallo o mal funcionamiento del artículo.
 
-Cuando el premio consista en la realización de un determinado viaje, se entiende que quedan excluidos del premio los desplazamientos de los Ganadores y, en su caso, sus acompañantes hasta el lugar fijado como punto de partida (incluyendo a título meramente enunciativo y sin limitación, aeropuertos, estaciones de tren, estaciones de autobuses, etc.), las tasas de los aeropuertos o cualquier otro tipo de estación, los gastos extras en los hoteles, los posibles suplementos por subidas de carburante, los gastos derivados de visados, todas las dietas y cualquiera otros gastos derivados de bienes o servicios que excedan de la definición del premio detallada en cláusula PREMIOS. Los viajes tendrán que reservarse con un mínimo de 4 meses de antelación y tendrán una validez de 12 meses desde la fecha del sorteo.
+Cuando el premio consista en la realización de un determinado viaje, se entiende que quedan excluidos del premio los desplazamientos de los Ganadores y, en su caso, sus acompañantes hasta el lugar fijado como punto de partida (incluyendo a título meramente enunciativo y sin limitación, aeropuertos, estaciones de tren, estaciones de autobuses, etc.), las tasas de los aeropuertos o cualquier otro tipo de estación, los gastos extras en los hoteles, los posibles suplementos por subidas de carburante, los gastos derivados de visados, todas las dietas y cualquiera otros gastos derivados de bienes o servicios que excedan de la definición del premio detallada en cláusula PREMIOS. Los viajes tendrán que reservarse con un mínimo de 4 meses de antelación y tendrán una validez de 12 meses desde la fecha del sorteo, salvo que las condiciones particulares del premio establezcan expresamente un plazo de reserva o un periodo de disfrute diferente, en cuyo caso prevalecerán estas últimas.
 
 Los premios se entregarán exclusivamente dentro del territorio nacional en la dirección que SALAD BRANDS indique a los ganadores o, en su caso, suplentes en el momento de la notificación del premio.
 
