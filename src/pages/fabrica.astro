@@ -53,7 +53,7 @@ const hubWsUrl =
   <head>
     <meta charset="UTF-8" />
     <title>{title}</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <meta property="og:type" content="website" />
@@ -323,6 +323,7 @@ const hubWsUrl =
     margin: 0;
     overflow: hidden;
     overscroll-behavior: none;
+    touch-action: manipulation;
     background: #06143a;
   }
 </style>
@@ -342,6 +343,11 @@ const hubWsUrl =
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
+    touch-action: manipulation;
+  }
+  .factory :global(button),
+  .factory :global(a) {
+    touch-action: manipulation;
   }
   /* Viñeta suave por encima del mundo y por debajo del HUD */
   .factory::before {
@@ -590,6 +596,10 @@ const hubWsUrl =
     flex-direction: column;
     align-items: flex-end;
     gap: 10px;
+    touch-action: none;
+  }
+  .hud-pad button {
+    touch-action: none;
   }
   .pad-jump {
     width: 68px;
@@ -676,6 +686,7 @@ const hubWsUrl =
     color: #fff;
     font: inherit;
     cursor: pointer;
+    touch-action: pan-x;
   }
   .hotbar :global(button[aria-pressed='true']) {
     border-color: #fff;
@@ -2095,7 +2106,24 @@ const hubWsUrl =
     say(isNew ? `Secreto: ${SECRETS[id]}` : SECRETS[id], isNew ? 'secret' : undefined)
   }
 
+  let hotbarTypes: number[] = []
+  let hotbarBtns: HTMLButtonElement[] = []
+  let hotbarCounts: HTMLElement[] = []
   const onInventory = (items: HotbarItem[], selected: number) => {
+    const same = items.length === hotbarTypes.length && items.every((item, i) => item.type === hotbarTypes[i])
+    if (same) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        const btn = hotbarBtns[i]
+        btn.setAttribute('aria-pressed', String(item.type === selected))
+        btn.setAttribute('aria-label', `${item.name}, ${item.count}`)
+        hotbarCounts[i].textContent = String(item.count)
+      }
+      return
+    }
+    hotbarTypes = items.map((item) => item.type)
+    hotbarBtns = []
+    hotbarCounts = []
     hotbar.replaceChildren(
       ...items.map((item) => {
         const li = document.createElement('li')
@@ -2106,11 +2134,11 @@ const hubWsUrl =
         button.setAttribute('aria-label', `${item.name}, ${item.count}`)
         button.title = item.name
         button.style.setProperty('--block', `url(${item.icon})`)
-        button.append(
-          document.createElement('i'),
-          Object.assign(document.createElement('b'), { textContent: String(item.count) })
-        )
+        const countEl = Object.assign(document.createElement('b'), { textContent: String(item.count) })
+        button.append(document.createElement('i'), countEl)
         li.append(button)
+        hotbarBtns.push(button)
+        hotbarCounts.push(countEl)
         return li
       })
     )
@@ -2160,6 +2188,10 @@ const hubWsUrl =
   root.style.setProperty('--shield', pixelImage(SHIELD, { K: '#000', B: '#21c7b0', W: '#c9fff6', D: '#14806f' }))
   root.style.setProperty('--shield-empty', pixelImage(SHIELD, { K: '#000', B: '#12332f', W: '#12332f', D: '#0c2421' }))
   const heartsBox = $('[data-hearts]')
+  const goalEl = $('[data-goal]')
+  const bossBox = $('[data-boss]')
+  const bossNameEl = $('[data-boss-name]')
+  const bossFillEl = $('[data-boss-fill]')
   let maxHearts = 0
   let lastHearts = 0
   let lastShield: boolean | null | undefined
@@ -2187,11 +2219,11 @@ const hubWsUrl =
     if (hud.time !== null) goal.push(`Tiempo ${hud.time}`)
     if (hud.kills) goal.push(`Naves ${hud.kills[0]}/${hud.kills[1]}`)
     if (hud.bombs !== null) goal.push(`Bombas ${hud.bombs}`)
-    $('[data-goal]').textContent = goal.join(' · ')
-    $('[data-boss]').hidden = !hud.boss
+    goalEl.textContent = goal.join(' · ')
+    bossBox.hidden = !hud.boss
     if (hud.boss) {
-      $('[data-boss-name]').textContent = hud.boss.name
-      $('[data-boss-fill]').style.width = `${(hud.boss.hp / hud.boss.max) * 100}%`
+      bossNameEl.textContent = hud.boss.name
+      bossFillEl.style.width = `${(hud.boss.hp / hud.boss.max) * 100}%`
     }
   }
   const showResult = (visible: boolean) => {
@@ -2675,6 +2707,14 @@ const hubWsUrl =
     else if (key === 'KeyG') triggerEmote('gg')
   })
 
+  // Evita el zoom por doble toque o pellizco en móvil (especialmente iOS Safari) durante la partida
+  document.addEventListener('dblclick', (event) => {
+    if ((event.target as HTMLElement | null)?.closest('input, textarea')) return
+    event.preventDefault()
+  })
+  document.addEventListener('gesturestart', (event) => event.preventDefault())
+  document.addEventListener('gesturechange', (event) => event.preventDefault())
+
   const viewButton = $('[data-view]')
   viewButton.addEventListener('click', () => factory?.cycleView())
 
@@ -2731,6 +2771,15 @@ const hubWsUrl =
 
   const hour = Number(params.get('hora') ?? NaN)
 
+  const stickKnob = stick.firstElementChild as HTMLElement
+  let rootRect = root.getBoundingClientRect()
+  const syncRootRect = () => {
+    rootRect = root.getBoundingClientRect()
+  }
+  window.addEventListener('resize', syncRootRect, { passive: true })
+  window.addEventListener('scroll', syncRootRect, { passive: true })
+  let stickActive = false
+
   const boot = async () => {
     try {
       const { createFactory } = await import('@/factory/engine')
@@ -2759,12 +2808,13 @@ const hubWsUrl =
           root.classList.toggle('is-selfie', view === 2)
         },
         onStick: (x, y, dx, dy, active) => {
+          if (active && !stickActive) rootRect = root.getBoundingClientRect()
+          stickActive = active
           stick.classList.toggle('is-active', active)
           stick.classList.toggle('is-sprint', active && -dy > 30 && Math.abs(dx) < 18)
           if (!active) return
-          const rect = root.getBoundingClientRect()
-          stick.style.translate = `${x - rect.left}px ${y - rect.top}px`
-          ;(stick.firstElementChild as HTMLElement).style.translate = `${dx}px ${dy}px`
+          stick.style.translate = `${x - rootRect.left}px ${y - rootRect.top}px`
+          stickKnob.style.translate = `${dx}px ${dy}px`
         },
       })
       root.classList.add('is-ready')
