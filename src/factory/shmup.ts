@@ -346,6 +346,16 @@ const BLASTS = 28
 const BEAMS = 8
 const RING = 28
 
+type ShipModels = ReturnType<typeof buildShips>
+let cachedShipModels: ShipModels | null = null
+const getShipModels = (): ShipModels => (cachedShipModels ??= buildShips())
+export function disposeShmupModels() {
+  if (!cachedShipModels) return
+  const { icons, ...rest } = cachedShipModels
+  for (const geo of [...Object.values(rest), ...Object.values(icons)]) geo.dispose()
+  cachedShipModels = null
+}
+
 export function createShmup(ctx: StageCtx, def: StageDef) {
   const { pos } = ctx.player
   const { hx: HX, hz: HZ } = FIELD
@@ -354,7 +364,7 @@ export function createShmup(ctx: StageCtx, def: StageDef) {
   const sp = 1 + def.level * 0.3
   const bs = 0.85 + def.level * 0.35
   const tough = 1 + (def.day - 1) * 0.03
-  const models = buildShips()
+  const models = getShipModels()
   const rand = mulberry32(def.day * 131)
   const meshes: Mesh[] = []
   const add = <T extends Mesh>(mesh: T) => {
@@ -787,10 +797,21 @@ export function createShmup(ctx: StageCtx, def: StageDef) {
     }
   }
 
-  // Naves enemigas
-  const kinds = Object.keys(SHIPS) as ShipId[]
-  const foeMesh = Object.fromEntries(kinds.map((kind) => [kind, instanced(models[kind], SHIPS[kind].cap)])) as Record<ShipId, InstancedMesh>
-  const foeMeshList = Object.values(foeMesh)
+  // Naves enemigas: crear InstancedMesh solo para los tipos usados en este nivel
+  const usedKinds = new Set<ShipId>()
+  for (const step of steps) {
+    if ('kind' in step) {
+      usedKinds.add(step.kind)
+      if (step.kind === 'splitter') usedKinds.add('shard')
+      else if (step.kind === 'coal') usedKinds.add('ember')
+      else if (step.kind === 'carrier') usedKinds.add('swarm')
+    } else if ('boss' in step) {
+      usedKinds.add('swarm')
+      usedKinds.add('kamikaze')
+    }
+  }
+  const foeMesh = Object.fromEntries([...usedKinds].map((kind) => [kind, instanced(models[kind], SHIPS[kind].cap)])) as Partial<Record<ShipId, InstancedMesh>>
+  const foeMeshList = Object.values(foeMesh) as InstancedMesh[]
   const foes: Foe[] = []
   const spawn = (kind: ShipId, x: number, i: number, extra = false) => {
     const side = x < 0 ? -1 : 1
@@ -1040,6 +1061,7 @@ export function createShmup(ctx: StageCtx, def: StageDef) {
         if (e.gone) continue
       }
       const mesh = foeMesh[e.kind]
+      if (!mesh) continue
       const n = mesh.count
       if (n >= spec.cap) continue
       const size = spec.size * (e.hidden ? 0.6 : 1) * (e.flash > 0 ? 1.15 : 1)
@@ -1291,23 +1313,22 @@ export function createShmup(ctx: StageCtx, def: StageDef) {
       b.x += b.vx * dt
       b.z += b.vz * dt
       if (b.z < -HZ - 2 || b.z > HZ + 2 || Math.abs(b.x) > HX + 2) b.on = false
-      const amount = ctx.strike(b.power)
       for (let k = 0; b.on && k < foes.length; k++) {
         const e = foes[k]
         const r = SHIPS[e.kind].r
         if (e.gone || e.hidden || e.z < -HZ - 1 || Math.abs(e.x - b.x) > r + 0.25 || Math.abs(e.z - b.z) > r + 0.5) continue
         b.on = false
-        harm(e, amount)
+        harm(e, ctx.strike(b.power))
       }
       if (b.on && fighting) {
         for (const pod of pods) {
           if (!b.on || !pod.alive || Math.abs(podX(pod.side) - b.x) > 1.3 || Math.abs(boss.z + 0.6 - b.z) > 1.8) continue
           b.on = false
-          hitPod(pod, amount)
+          hitPod(pod, ctx.strike(b.power))
         }
         if (b.on && Math.abs(boss.x - b.x) < 2.3 && Math.abs(boss.z - b.z) < 3) {
           b.on = false
-          hitBoss(amount)
+          hitBoss(ctx.strike(b.power))
         }
       }
       if (!b.on) {
@@ -1442,8 +1463,6 @@ export function createShmup(ctx: StageCtx, def: StageDef) {
       starGeo.dispose()
       starMat.dispose()
       hazeTex.dispose()
-      const { icons, ...rest } = models
-      for (const geo of [...Object.values(rest), ...Object.values(icons)]) geo.dispose()
       ctx.foeFlash.value = 0
     },
   }

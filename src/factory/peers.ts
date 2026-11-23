@@ -1,13 +1,18 @@
 import {
   BoxGeometry,
   CanvasTexture,
+  Color,
+  Euler,
   Group,
-  Mesh,
+  InstancedMesh,
+  Matrix4,
   MeshBasicMaterial,
   NearestFilter,
+  Quaternion,
   SRGBColorSpace,
   Sprite,
   SpriteMaterial,
+  Vector3,
   type BufferGeometry,
   type Material,
   type Object3D,
@@ -23,13 +28,6 @@ interface SkinGeometries {
 
 interface PeerVisual {
   id: number
-  root: Group
-  head: Mesh
-  armL: Mesh
-  armR: Mesh
-  legL: Mesh
-  legR: Mesh
-  badgeMat: MeshBasicMaterial
   labelSprite: Sprite
   labelTex: CanvasTexture
   labelMat: SpriteMaterial
@@ -50,6 +48,8 @@ interface PeerVisual {
 }
 
 const EMOTE_DURATION = 2.6
+const MAX_PEERS = 32
+const LABEL_DIST_SQ = 36 * 36
 
 function shortestAngle(from: number, to: number): number {
   let diff = (to - from + Math.PI) % (Math.PI * 2)
@@ -137,9 +137,36 @@ export function createPeersRenderer(opts: {
   const visuals = new Map<number, PeerVisual>()
   let latestPeers = new Map<number, RemotePeer>()
 
-  // Pequeña bufanda / insignia de color en el torso para distinguir rápido a cada jugador
+  // Pequeña bufanda / insignia de color en el torso para distinguir rápido a cada jugador.
+  // Todas las extremidades y bufandas se dibujan con InstancedMesh (5 draw calls totales en vez de 7 por jugador)
   const scarfGeo = new BoxGeometry(0.62, 0.14, 0.42)
+  const scarfMat = new MeshBasicMaterial({ color: 0xffffff })
+  const makeInst = (geo: BufferGeometry, mat: Material, cap: number) => {
+    const mesh = opts.castShadow(new InstancedMesh(geo, mat, cap))
+    mesh.frustumCulled = false
+    mesh.count = 0
+    group.add(mesh)
+    return mesh
+  }
+  const torsoInst = makeInst(opts.skin.torso, opts.matProp, MAX_PEERS)
+  const headInst = makeInst(opts.skin.head, opts.matProp, MAX_PEERS)
+  const armInst = makeInst(opts.skin.arm, opts.matProp, MAX_PEERS * 2)
+  const legInst = makeInst(opts.skin.leg, opts.matProp, MAX_PEERS * 2)
+  const scarfInst = makeInst(scarfGeo, scarfMat, MAX_PEERS)
+
   const emoteCache = new Map<EmoteId, CanvasTexture>()
+  const rootM = new Matrix4()
+  const localM = new Matrix4()
+  const outM = new Matrix4()
+  const rootPos = new Vector3()
+  const localPos = new Vector3()
+  const one = new Vector3(1, 1, 1)
+  const up = new Vector3(0, 1, 0)
+  const rootQ = new Quaternion()
+  const localQ = new Quaternion()
+  const localEuler = new Euler()
+  const tmpColor = new Color()
+  const colorCache = PEER_COLORS.map((p) => new Color(p.hex))
 
   const getEmoteTex = (emote: EmoteId) => {
     let tex = emoteCache.get(emote)
@@ -151,53 +178,21 @@ export function createPeersRenderer(opts: {
   }
 
   const createVisual = (peer: RemotePeer): PeerVisual => {
-    const root = opts.castShadow(new Group())
-    const limb = (geo: BufferGeometry, x: number, y: number) => {
-      const mesh = opts.castShadow(new Mesh(geo, opts.matProp))
-      mesh.position.set(x, y, 0)
-      root.add(mesh)
-      return mesh
-    }
-    limb(opts.skin.torso, 0, 0)
-    const head = limb(opts.skin.head, 0, 1.3)
-    const armL = limb(opts.skin.arm, -0.39, 1.24)
-    const armR = limb(opts.skin.arm, 0.39, 1.24)
-    const legL = limb(opts.skin.leg, -0.14, 0.6)
-    const legR = limb(opts.skin.leg, 0.14, 0.6)
-
-    const palette = PEER_COLORS[peer.color % PEER_COLORS.length]
-    const badgeMat = new MeshBasicMaterial({ color: palette.hex })
-    const scarf = opts.castShadow(new Mesh(scarfGeo, badgeMat))
-    scarf.position.set(0, 1.24, 0)
-    root.add(scarf)
-
     const labelTex = makeLabelTexture(peer.name, peer.color)
     const labelMat = new SpriteMaterial({ map: labelTex, transparent: true, depthTest: true, fog: false })
     const labelSprite = new Sprite(labelMat)
-    labelSprite.position.set(0, 2.22, 0)
     labelSprite.scale.set(2.1, 0.4, 1)
-    root.add(labelSprite)
+    labelSprite.visible = false
+    group.add(labelSprite)
 
     const emoteMat = new SpriteMaterial({ transparent: true, depthTest: true, fog: false })
     const emoteSprite = new Sprite(emoteMat)
-    emoteSprite.position.set(0, 2.7, 0)
     emoteSprite.scale.set(1.45, 0.44, 1)
     emoteSprite.visible = false
-    root.add(emoteSprite)
-
-    root.position.set(peer.x, peer.y, peer.z)
-    root.rotation.y = peer.yaw + Math.PI
-    group.add(root)
+    group.add(emoteSprite)
 
     return {
       id: peer.id,
-      root,
-      head,
-      armL,
-      armR,
-      legL,
-      legR,
-      badgeMat,
       labelSprite,
       labelTex,
       labelMat,
@@ -219,8 +214,8 @@ export function createPeersRenderer(opts: {
   }
 
   const destroyVisual = (visual: PeerVisual) => {
-    group.remove(visual.root)
-    visual.badgeMat.dispose()
+    group.remove(visual.labelSprite)
+    group.remove(visual.emoteSprite)
     visual.labelTex.dispose()
     visual.labelMat.dispose()
     visual.emoteMat.dispose()
@@ -243,8 +238,6 @@ export function createPeersRenderer(opts: {
       if (existing.name !== peer.name || existing.color !== peer.color) {
         existing.name = peer.name
         existing.color = peer.color
-        const palette = PEER_COLORS[peer.color % PEER_COLORS.length]
-        existing.badgeMat.color.set(palette.hex)
         existing.labelTex.dispose()
         existing.labelTex = makeLabelTexture(peer.name, peer.color)
         existing.labelMat.map = existing.labelTex
@@ -262,21 +255,42 @@ export function createPeersRenderer(opts: {
     visual.emoteTex = tex
     visual.emoteMat.map = tex
     visual.emoteMat.needsUpdate = true
-    visual.emoteSprite.visible = true
   }
 
-  const update = (dt: number, time: number, addBlob: (x: number, y: number, z: number, r: number) => void) => {
+  const writeLimb = (
+    inst: InstancedMesh,
+    index: number,
+    lx: number,
+    ly: number,
+    rx: number,
+    rz: number
+  ) => {
+    localPos.set(lx, ly, 0)
+    localEuler.set(rx, 0, rz)
+    localQ.setFromEuler(localEuler)
+    localM.compose(localPos, localQ, one)
+    outM.multiplyMatrices(rootM, localM)
+    inst.setMatrixAt(index, outM)
+  }
+
+  const update = (
+    dt: number,
+    time: number,
+    addBlob: (x: number, y: number, z: number, r: number) => void,
+    camPos?: Vector3
+  ) => {
     if (!group.visible) return
     const lerp = Math.min(1, dt * 12)
     const motion = opts.reducedMotion ? 0 : 1
+    let count = 0
 
     for (const [id, visual] of visuals) {
       const target = latestPeers.get(id)
-      if (!target || target.inStage) {
-        visual.root.visible = false
+      if (!target || target.inStage || count >= MAX_PEERS) {
+        visual.labelSprite.visible = false
+        visual.emoteSprite.visible = false
         continue
       }
-      visual.root.visible = true
 
       // Si se teletransportó muy lejos (por ejemplo a una puerta), saltar directo sin arrastrarlo por el mapa
       const dx = target.x - visual.x
@@ -309,47 +323,81 @@ export function createPeersRenderer(opts: {
       let extraY = Math.abs(Math.sin(cycle)) * visual.gait * 0.04
       let extraYaw = 0
 
-      visual.head.rotation.x = -visual.pitch * 0.6
-      visual.legL.rotation.x = walk * 0.75
-      visual.legR.rotation.x = -walk * 0.75
-      visual.armL.rotation.x = -walk * 0.75
-      visual.armR.rotation.x = walk * 0.75
-      visual.armL.rotation.z = -0.06
-      visual.armR.rotation.z = 0.06
+      const headRx = -visual.pitch * 0.6
+      const legLRx = walk * 0.75
+      const legRRx = -walk * 0.75
+      let armLRx = -walk * 0.75
+      let armRRx = walk * 0.75
+      let armLRz = -0.06
+      let armRRz = 0.06
+      let emoteBob = 0
 
       if (visual.emoteTimer > 0 && visual.emote) {
         visual.emoteTimer = Math.max(0, visual.emoteTimer - dt)
         const t = EMOTE_DURATION - visual.emoteTimer
         if (visual.emote === 'wave') {
-          visual.armR.rotation.x = -2.5
-          visual.armR.rotation.z = 0.35 + Math.sin(t * 14) * 0.45 * motion
+          armRRx = -2.5
+          armRRz = 0.35 + Math.sin(t * 14) * 0.45 * motion
         } else if (visual.emote === 'dance') {
           extraYaw = Math.sin(t * 7) * 0.55 * motion
           extraY += Math.abs(Math.sin(t * 10)) * 0.22 * motion
-          visual.armL.rotation.x = -1.6 + Math.sin(t * 10) * 0.7 * motion
-          visual.armR.rotation.x = -1.6 - Math.sin(t * 10) * 0.7 * motion
-          visual.armL.rotation.z = -0.45
-          visual.armR.rotation.z = 0.45
+          armLRx = -1.6 + Math.sin(t * 10) * 0.7 * motion
+          armRRx = -1.6 - Math.sin(t * 10) * 0.7 * motion
+          armLRz = -0.45
+          armRRz = 0.45
         } else if (visual.emote === 'celebrate') {
           extraY += Math.abs(Math.sin(t * 8)) * 0.45 * motion
-          visual.armL.rotation.x = -2.7
-          visual.armR.rotation.x = -2.7
-          visual.armL.rotation.z = -0.28
-          visual.armR.rotation.z = 0.28
+          armLRx = -2.7
+          armRRx = -2.7
+          armLRz = -0.28
+          armRRz = 0.28
         } else if (visual.emote === 'gg') {
-          visual.armR.rotation.x = -2.15
-          visual.armR.rotation.z = -0.15
+          armRRx = -2.15
+          armRRz = -0.15
         }
-        visual.emoteSprite.position.y = 2.7 + Math.sin(t * 6) * 0.06 * motion
-        if (visual.emoteTimer <= 0) {
-          visual.emote = null
-          visual.emoteSprite.visible = false
-        }
+        emoteBob = Math.sin(t * 6) * 0.06 * motion
+        if (visual.emoteTimer <= 0) visual.emote = null
       }
 
-      visual.root.position.set(visual.x, visual.y + extraY, visual.z)
-      visual.root.rotation.y = visual.yaw + Math.PI + extraYaw
+      const wy = visual.y + extraY
+      rootPos.set(visual.x, wy, visual.z)
+      rootQ.setFromAxisAngle(up, visual.yaw + Math.PI + extraYaw)
+      rootM.compose(rootPos, rootQ, one)
+
+      torsoInst.setMatrixAt(count, rootM)
+      writeLimb(headInst, count, 0, 1.3, headRx, 0)
+      writeLimb(armInst, count * 2, -0.39, 1.24, armLRx, armLRz)
+      writeLimb(armInst, count * 2 + 1, 0.39, 1.24, armRRx, armRRz)
+      writeLimb(legInst, count * 2, -0.14, 0.6, legLRx, 0)
+      writeLimb(legInst, count * 2 + 1, 0.14, 0.6, legRRx, 0)
+      writeLimb(scarfInst, count, 0, 1.24, 0, 0)
+      scarfInst.setColorAt(count, colorCache[visual.color % colorCache.length] ?? tmpColor.set(0xffffff))
+
+      const near =
+        !camPos ||
+        (visual.x - camPos.x) * (visual.x - camPos.x) + (visual.z - camPos.z) * (visual.z - camPos.z) < LABEL_DIST_SQ
+      visual.labelSprite.visible = near
+      if (near) visual.labelSprite.position.set(visual.x, wy + 2.22, visual.z)
+      const showEmote = near && visual.emoteTimer > 0 && visual.emote !== null
+      visual.emoteSprite.visible = showEmote
+      if (showEmote) visual.emoteSprite.position.set(visual.x, wy + 2.7 + emoteBob, visual.z)
+
       addBlob(visual.x, visual.y, visual.z, 0.42)
+      count++
+    }
+
+    torsoInst.count = count
+    headInst.count = count
+    armInst.count = count * 2
+    legInst.count = count * 2
+    scarfInst.count = count
+    if (count > 0) {
+      torsoInst.instanceMatrix.needsUpdate = true
+      headInst.instanceMatrix.needsUpdate = true
+      armInst.instanceMatrix.needsUpdate = true
+      legInst.instanceMatrix.needsUpdate = true
+      scarfInst.instanceMatrix.needsUpdate = true
+      if (scarfInst.instanceColor) scarfInst.instanceColor.needsUpdate = true
     }
   }
 
@@ -358,7 +406,13 @@ export function createPeersRenderer(opts: {
     visuals.clear()
     for (const tex of emoteCache.values()) tex.dispose()
     emoteCache.clear()
+    torsoInst.dispose()
+    headInst.dispose()
+    armInst.dispose()
+    legInst.dispose()
+    scarfInst.dispose()
     scarfGeo.dispose()
+    scarfMat.dispose()
   }
 
   return {

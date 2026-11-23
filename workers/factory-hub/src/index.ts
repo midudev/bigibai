@@ -178,17 +178,40 @@ export default {
 
 export class FactoryRoom {
   private ctx: DurableObjectState
+  // Caché en memoria de los peers activos para evitar deserialize/serializeAttachment en cada pose (10 Hz)
+  private peersCache = new Map<HibernatingWebSocket, PeerAttachment>()
+  private lastPersisted = new Map<HibernatingWebSocket, number>()
+  private hydrated = false
+  private poseOut = new ArrayBuffer(22)
+  private poseOutView = new DataView(this.poseOut)
 
   constructor(ctx: DurableObjectState) {
     this.ctx = ctx
   }
 
-  private getPeers(): { ws: HibernatingWebSocket; data: PeerAttachment }[] {
-    const list: { ws: HibernatingWebSocket; data: PeerAttachment }[] = []
+  private ensureHydrated() {
+    if (this.hydrated) return
+    this.hydrated = true
     for (const ws of this.ctx.getWebSockets()) {
       const data = ws.deserializeAttachment() as PeerAttachment | null
-      if (data && typeof data.id === 'number') list.push({ ws, data })
+      if (data && typeof data.id === 'number') this.peersCache.set(ws, data)
     }
+  }
+
+  private getPeer(ws: HibernatingWebSocket): PeerAttachment | null {
+    this.ensureHydrated()
+    let data = this.peersCache.get(ws) ?? null
+    if (!data) {
+      data = ws.deserializeAttachment() as PeerAttachment | null
+      if (data && typeof data.id === 'number') this.peersCache.set(ws, data)
+    }
+    return data
+  }
+
+  private getPeers(): { ws: HibernatingWebSocket; data: PeerAttachment }[] {
+    this.ensureHydrated()
+    const list: { ws: HibernatingWebSocket; data: PeerAttachment }[] = []
+    for (const [ws, data] of this.peersCache) list.push({ ws, data })
     return list
   }
 
@@ -252,6 +275,8 @@ export class FactoryRoom {
 
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment(peer)
+    this.peersCache.set(server, peer)
+    this.lastPersisted.set(server, Date.now())
 
     // Bienvenida al recién llegado con la lista de jugadores actuales
     server.send(
@@ -302,7 +327,7 @@ export class FactoryRoom {
   }
 
   webSocketMessage(ws: HibernatingWebSocket, message: string | ArrayBuffer) {
-    const peer = ws.deserializeAttachment() as PeerAttachment | null
+    const peer = this.getPeer(ws)
     if (!peer) return
 
     // Trama binaria de posición (20 bytes cliente -> 22 bytes servidor)
@@ -334,11 +359,14 @@ export class FactoryRoom {
       peer.speed = speed
       peer.flags = flags
       peer.lastPoseAt = now
-      ws.serializeAttachment(peer)
+      // Solo persistir attachment periódicamente para sobrevivir a hibernación sin serializar 280 veces/s
+      if (now - (this.lastPersisted.get(ws) ?? 0) >= 2500) {
+        this.lastPersisted.set(ws, now)
+        ws.serializeAttachment(peer)
+      }
 
-      // Reenvío compacto con peerId (22 bytes)
-      const out = new ArrayBuffer(22)
-      const outView = new DataView(out)
+      // Reenvío compacto con peerId (22 bytes) reutilizando el buffer
+      const outView = this.poseOutView
       outView.setUint8(0, 1)
       outView.setUint8(1, flags)
       outView.setUint16(2, peer.id, true)
@@ -349,7 +377,7 @@ export class FactoryRoom {
       outView.setInt16(18, pitchQ, true)
       outView.setUint8(20, speed)
       outView.setUint8(21, 0)
-      this.broadcast(out, ws)
+      this.broadcast(this.poseOut, ws)
       return
     }
 
@@ -389,7 +417,9 @@ export class FactoryRoom {
   }
 
   private removePeer(ws: HibernatingWebSocket) {
-    const peer = ws.deserializeAttachment() as PeerAttachment | null
+    const peer = this.getPeer(ws)
+    this.peersCache.delete(ws)
+    this.lastPersisted.delete(ws)
     if (!peer) return
     this.broadcast(JSON.stringify({ t: 'leave', id: peer.id }), ws)
   }

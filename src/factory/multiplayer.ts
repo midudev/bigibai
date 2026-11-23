@@ -81,24 +81,25 @@ function wrapAngle(a: number): number {
   return r - Math.PI
 }
 
+const poseBuf = new ArrayBuffer(20)
+const poseView = new DataView(poseBuf)
+
 function encodePose(pose: LocalPose): ArrayBuffer {
-  const buf = new ArrayBuffer(20)
-  const view = new DataView(buf)
   const flags =
     (pose.onGround ? FLAG_GROUND : 0) | (pose.inLiquid ? FLAG_LIQUID : 0) | (pose.inStage ? FLAG_STAGE : 0)
   const speedByte = Math.max(0, Math.min(255, Math.round(pose.speed * 20)))
   const yawQ = Math.max(-32767, Math.min(32767, Math.round((wrapAngle(pose.yaw) / Math.PI) * 32767)))
   const pitchQ = Math.max(-32767, Math.min(32767, Math.round((pose.pitch / (Math.PI / 2)) * 32767)))
-  view.setUint8(0, 1)
-  view.setUint8(1, flags)
-  view.setUint8(2, speedByte)
-  view.setUint8(3, 0)
-  view.setFloat32(4, pose.x, true)
-  view.setFloat32(8, pose.y, true)
-  view.setFloat32(12, pose.z, true)
-  view.setInt16(16, yawQ, true)
-  view.setInt16(18, pitchQ, true)
-  return buf
+  poseView.setUint8(0, 1)
+  poseView.setUint8(1, flags)
+  poseView.setUint8(2, speedByte)
+  poseView.setUint8(3, 0)
+  poseView.setFloat32(4, pose.x, true)
+  poseView.setFloat32(8, pose.y, true)
+  poseView.setFloat32(12, pose.z, true)
+  poseView.setInt16(16, yawQ, true)
+  poseView.setInt16(18, pitchQ, true)
+  return poseBuf
 }
 
 export function createFactoryHubClient(opts: HubClientOptions) {
@@ -168,7 +169,18 @@ export function createFactoryHubClient(opts: HubClientOptions) {
       Math.abs(pose.speed - lastPose.speed) > 0.2
     if (!force && !moved && now - lastSentAt < KEEPALIVE_MS) return
     lastSentAt = now
-    lastPose = { ...pose }
+    if (!lastPose) lastPose = { ...pose }
+    else {
+      lastPose.x = pose.x
+      lastPose.y = pose.y
+      lastPose.z = pose.z
+      lastPose.yaw = pose.yaw
+      lastPose.pitch = pose.pitch
+      lastPose.speed = pose.speed
+      lastPose.onGround = pose.onGround
+      lastPose.inLiquid = pose.inLiquid
+      lastPose.inStage = pose.inStage
+    }
     try {
       ws.send(encodePose(pose))
     } catch {}

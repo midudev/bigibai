@@ -77,8 +77,9 @@ const SONG_VOLUME = 0.12
 export function createAudio(muted: boolean) {
   let ctx: AudioContext | null = null
   let master: GainNode
+  let limiter: DynamicsCompressorNode
   let noiseBuffer: AudioBuffer
-  let meter: AnalyserNode
+  let meter: AnalyserNode | null = null
   let track: Track = 'hub'
   let songDay = 0
   // Tras la fanfarria la música calla hasta el siguiente setTrack
@@ -90,6 +91,9 @@ export function createAudio(muted: boolean) {
   let active = true
   // Por dónde iba cada canción, para retomar la de la fábrica al volver
   const songAt = new Map<string, number>()
+  // Evita saturar el hilo de audio si un mismo efecto se dispara varias veces en el mismo frame
+  const lastPlayed = new Map<Sfx, number>()
+  const THROTTLED_SFX = new Set<Sfx>(['hit', 'shoot', 'break', 'coin', 'clang', 'slam'])
 
   const tone = (
     out: AudioNode,
@@ -175,14 +179,12 @@ export function createAudio(muted: boolean) {
       master = ctx.createGain()
       master.gain.value = muted ? 0 : VOLUME
       // Un limitador al final: los golpes fuertes no saturan
-      const limiter = ctx.createDynamicsCompressor()
+      limiter = ctx.createDynamicsCompressor()
       limiter.threshold.value = -10
       limiter.ratio.value = 12
       limiter.attack.value = 0.003
       limiter.release.value = 0.12
       master.connect(limiter).connect(ctx.destination)
-      meter = ctx.createAnalyser()
-      limiter.connect(meter)
       noiseBuffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
       const data = noiseBuffer.getChannelData(0)
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
@@ -248,6 +250,11 @@ export function createAudio(muted: boolean) {
     play(name: Sfx) {
       if (!ctx || muted || ctx.state !== 'running') return
       const now = ctx.currentTime
+      if (THROTTLED_SFX.has(name)) {
+        const prev = lastPlayed.get(name) ?? -1
+        if (now - prev < 0.035) return
+        lastPlayed.set(name, now)
+      }
       if (name === 'break') {
         noise(master, now, 0.09, 0.3, 1100)
         tone(master, 'square', 150, 70, now, 0.08, 0.12)
@@ -285,6 +292,10 @@ export function createAudio(muted: boolean) {
     // Nivel de la salida ahora mismo, para comprobar que suena y no satura
     level() {
       if (!ctx) return null
+      if (!meter) {
+        meter = ctx.createAnalyser()
+        limiter.connect(meter)
+      }
       const data = new Float32Array(meter.fftSize)
       meter.getFloatTimeDomainData(data)
       let peak = 0
@@ -299,6 +310,7 @@ export function createAudio(muted: boolean) {
       clearTimeout(songTimer)
       song?.pause()
       song = null
+      meter = null
       ctx?.close()
       ctx = null
     },

@@ -48,6 +48,7 @@ import { mulberry32 } from './voxels'
 import { DAMAGE, SPEED_STEP, STRENGTH_STEP, shieldTime, type PlayerStats } from './stats'
 import { FIELD, buildStage, type StageDef, type StageKind, type Weapon } from './stages'
 import { buildModels, createStage, disposeModels, type StageCtx, type StageHud, type StageRuntime, type StageSound } from './actors'
+import { disposeShmupModels } from './shmup'
 import { createPeersRenderer } from './peers'
 import type { EmoteId, LocalPose, RemotePeer } from './multiplayer'
 
@@ -127,6 +128,8 @@ const TINTS: Record<DoorState, [number, number]> = {
   done: [0x91e4bc, 0x91e4bc],
 }
 const AO = [0.5, 0.68, 0.84, 1]
+const AO8 = new Uint8Array([128, 82, 41, 0])
+const OP8 = new Uint8Array([255, 191, 128, 64, 0])
 // Esquinas en orden abajo-izquierda, abajo-derecha, arriba-derecha, arriba-izquierda
 const FACES = [
   { n: [1, 0, 0], a: [1, 2], shade: 0.84, c: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]] },
@@ -348,12 +351,10 @@ function glowTexture() {
   return tex
 }
 
-function numbersAtlas() {
+function paintNumbersAtlas(canvas: HTMLCanvasElement) {
   const cell = 96
-  const canvas = document.createElement('canvas')
-  canvas.width = cell * 6
-  canvas.height = cell * 8
   const ctx = canvas.getContext('2d')!
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   for (let i = 0; i < 24; i++) {
@@ -378,10 +379,18 @@ function numbersAtlas() {
     ctx.fillStyle = '#fff'
     ctx.fillText(String(i + 1), cx, cy + cell * 4)
   }
+}
+
+function numbersAtlas() {
+  const cell = 96
+  const canvas = document.createElement('canvas')
+  canvas.width = cell * 6
+  canvas.height = cell * 8
+  paintNumbersAtlas(canvas)
   const tex = new CanvasTexture(canvas)
   tex.colorSpace = SRGBColorSpace
   tex.magFilter = NearestFilter
-  return tex
+  return { tex, canvas }
 }
 
 interface Save {
@@ -578,11 +587,15 @@ export async function createFactory(opts: FactoryOptions) {
             float ndl = max(dot(n, uSunDir), 0.0);
             float vis = ndl > 0.0 ? sunVisibility() : 0.0;
             float sun = ndl * vis * (0.5 + 0.5 * ao);
-            vec3 halfV = normalize(uSunDir + viewDir);
-            float spec = pow(max(dot(n, halfV), 0.0), 28.0) * 0.22 * vis * step(0.01, ndl);
+            float spec = 0.0;
+            if (vis > 0.01 && ndl > 0.01) {
+              vec3 halfV = normalize(uSunDir + viewDir);
+              spec = pow(max(dot(n, halfV), 0.0), 28.0) * 0.22 * vis;
+            }
             float rimBase = 1.0 - max(dot(n, viewDir), 0.0);
             float rim = rimBase * rimBase * rimBase * 0.14 * ao;
-            diffuseColor.rgb = diffuseColor.rgb * (sky * ao + uSun * sun + uLamp * lampLight(n, min(vColor.a, 1.0))) + uSun * spec + sky * rim;
+            vec3 lampTerm = dot(uLamp, uLamp) > 0.0001 ? uLamp * lampLight(n, min(vColor.a, 1.0)) : vec3(0.0);
+            diffuseColor.rgb = diffuseColor.rgb * (sky * ao + uSun * sun + lampTerm) + uSun * spec + sky * rim;
           } else {
             diffuseColor.rgb *= 1.3;
           }`
@@ -597,13 +610,17 @@ export async function createFactory(opts: FactoryOptions) {
             float sun = vNdl * vis * (0.5 + 0.5 * ao);
             // Brillo especular según el tipo de bloque (acero, baldosa, tubería, chocolate, cristal)
             int ti = int(vTile + 0.5);
-            float shiny = (ti == 14) ? 0.45 : (ti == 0 || ti == 1 || ti == 8) ? 0.22 : (ti == 4) ? 0.18 : 0.06;
-            float power = (ti == 14) ? 48.0 : (ti == 0 || ti == 1 || ti == 8) ? 26.0 : 16.0;
-            vec3 halfV = normalize(uSunDir + viewDir);
-            float spec = vis > 0.01 ? pow(max(dot(n, halfV), 0.0), power) * shiny * vis : 0.0;
+            float spec = 0.0;
+            if (vis > 0.01) {
+              float shiny = (ti == 14) ? 0.45 : (ti == 0 || ti == 1 || ti == 8) ? 0.22 : (ti == 4) ? 0.18 : 0.06;
+              float power = (ti == 14) ? 48.0 : (ti == 0 || ti == 1 || ti == 8) ? 26.0 : 16.0;
+              vec3 halfV = normalize(uSunDir + viewDir);
+              spec = pow(max(dot(n, halfV), 0.0), power) * shiny * vis;
+            }
             float rimBase = 1.0 - max(dot(n, viewDir), 0.0);
             float rim = rimBase * rimBase * rimBase * (ti == 14 ? 0.28 : 0.09) * ao;
-            diffuseColor.rgb = diffuseColor.rgb * (vSky * ao + uSun * sun + uLamp * lampLight(n, 0.0)) + uSun * spec + vSky * rim;
+            vec3 lampTerm = dot(uLamp, uLamp) > 0.0001 ? uLamp * lampLight(n, 0.0) : vec3(0.0);
+            diffuseColor.rgb = diffuseColor.rgb * (vSky * ao + uSun * sun + lampTerm) + uSun * spec + vSky * rim;
           } else {
             diffuseColor.rgb *= 1.35;
           }`
@@ -767,27 +784,55 @@ export async function createFactory(opts: FactoryOptions) {
   let glowGeo = hubGlowGeo
   disposables.push(hubGlowGeo, stageGlowGeo, glowTex, glowMat)
   const GLOW_LIMIT = isMobile ? 1200 : 2400
+  const hubGlowCells = new Set<number>()
+  let hubGlowsIndexed = false
   const buildGlows = (x0 = 0, y0 = 0, z0 = 0, x1 = W - 1, y1 = H - 1, z1 = D - 1) => {
     const spots: number[] = []
     const tints: number[] = []
-    for (let y = y0; y <= y1 && spots.length <= GLOW_LIMIT; y++) {
-      const yOff = y << 14
-      for (let z = z0; z <= z1 && spots.length <= GLOW_LIMIT; z++) {
-        const yzOff = yOff | (z << 7)
-        for (let x = x0; x <= x1 && spots.length <= GLOW_LIMIT; x++) {
-          const t = blocks[yzOff | x]
-          if (!GLOW[t]) continue
-          const r = palette[t * 3] * 0.5
-          const g = palette[t * 3 + 1] * 0.5
-          const b = palette[t * 3 + 2] * 0.5
-          for (let f = 0; f < 6; f++) {
-            const n = FACES[f].n
-            if (OPAQUE[get(x + n[0], y + n[1], z + n[2])]) continue
-            spots.push(x + 0.5 + n[0] * 0.56, y + 0.5 + n[1] * 0.56, z + 0.5 + n[2] * 0.56)
-            tints.push(r, g, b)
+    const fullHub = blocks === hubBlocks && x0 === 0 && y0 === 0 && z0 === 0 && x1 === W - 1 && y1 === H - 1 && z1 === D - 1
+    if (fullHub && hubGlowsIndexed) {
+      for (const idx of hubGlowCells) {
+        if (spots.length > GLOW_LIMIT) break
+        const t = blocks[idx]
+        if (!GLOW[t]) continue
+        const x = idx & 127
+        const z = (idx >> 7) & 127
+        const y = idx >> 14
+        const r = palette[t * 3] * 0.5
+        const g = palette[t * 3 + 1] * 0.5
+        const b = palette[t * 3 + 2] * 0.5
+        for (let f = 0; f < 6; f++) {
+          const n = FACES[f].n
+          if (OPAQUE[get(x + n[0], y + n[1], z + n[2])]) continue
+          spots.push(x + 0.5 + n[0] * 0.56, y + 0.5 + n[1] * 0.56, z + 0.5 + n[2] * 0.56)
+          tints.push(r, g, b)
+        }
+      }
+    } else {
+      if (fullHub) hubGlowCells.clear()
+      for (let y = y0; y <= y1; y++) {
+        const yOff = y << 14
+        for (let z = z0; z <= z1; z++) {
+          const yzOff = yOff | (z << 7)
+          for (let x = x0; x <= x1; x++) {
+            const idx = yzOff | x
+            const t = blocks[idx]
+            if (!GLOW[t]) continue
+            if (fullHub) hubGlowCells.add(idx)
+            if (spots.length > GLOW_LIMIT) continue
+            const r = palette[t * 3] * 0.5
+            const g = palette[t * 3 + 1] * 0.5
+            const b = palette[t * 3 + 2] * 0.5
+            for (let f = 0; f < 6; f++) {
+              const n = FACES[f].n
+              if (OPAQUE[get(x + n[0], y + n[1], z + n[2])]) continue
+              spots.push(x + 0.5 + n[0] * 0.56, y + 0.5 + n[1] * 0.56, z + 0.5 + n[2] * 0.56)
+              tints.push(r, g, b)
+            }
           }
         }
       }
+      if (fullHub) hubGlowsIndexed = true
     }
     glowGeo.dispose()
     glowGeo.setAttribute('position', new BufferAttribute(new Float32Array(spots), 3))
@@ -1047,10 +1092,14 @@ export async function createFactory(opts: FactoryOptions) {
       const b = palette8[t * 3 + 2]
       const tile = TILE_OF[t] ?? TILE.PLATE
       const em = GLOW[t] ? 255 : 0
-      const ao0 = AO[(key >> 6) & 3]
-      const ao1 = AO[(key >> 8) & 3]
-      const ao2 = AO[(key >> 10) & 3]
-      const ao3 = AO[(key >> 12) & 3]
+      const ao0i = (key >> 6) & 3
+      const ao1i = (key >> 8) & 3
+      const ao2i = (key >> 10) & 3
+      const ao3i = (key >> 12) & 3
+      const ao0 = AO[ao0i]
+      const ao1 = AO[ao1i]
+      const ao2 = AO[ao2i]
+      const ao3 = AO[ao3i]
       const op0 = (key >> 14) & 7
       const op1 = (key >> 17) & 7
       const op2 = (key >> 20) & 7
@@ -1068,10 +1117,10 @@ export async function createFactory(opts: FactoryOptions) {
         sCol[k4] = r; sCol[k4 + 1] = g; sCol[k4 + 2] = b; sCol[k4 + 3] = em
         sTile[base + k] = tile
       }
-      sOcc[p2] = Math.round((1 - ao0) * 255); sOcc[p2 + 1] = Math.round((1 - op0 * 0.25) * 255)
-      sOcc[p2 + 2] = Math.round((1 - ao1) * 255); sOcc[p2 + 3] = Math.round((1 - op1 * 0.25) * 255)
-      sOcc[p2 + 4] = Math.round((1 - ao2) * 255); sOcc[p2 + 5] = Math.round((1 - op2 * 0.25) * 255)
-      sOcc[p2 + 6] = Math.round((1 - ao3) * 255); sOcc[p2 + 7] = Math.round((1 - op3 * 0.25) * 255)
+      sOcc[p2] = AO8[ao0i]; sOcc[p2 + 1] = OP8[op0]
+      sOcc[p2 + 2] = AO8[ao1i]; sOcc[p2 + 3] = OP8[op1]
+      sOcc[p2 + 4] = AO8[ao2i]; sOcc[p2 + 5] = OP8[op2]
+      sOcc[p2 + 6] = AO8[ao3i]; sOcc[p2 + 7] = OP8[op3]
 
       sUv[p2] = 0; sUv[p2 + 1] = 0
       sUv[p2 + 2] = rw; sUv[p2 + 3] = 0
@@ -1291,6 +1340,7 @@ export async function createFactory(opts: FactoryOptions) {
 
   // Chocolate fundido: una sola malla con la textura en movimiento (solo en la fábrica)
   let liquid: Mesh | null = null
+  let liquidBounds: [number, number, number, number, number, number] | null = null
   const buildLiquid = () => {
     const pos: number[] = []
     const col: number[] = []
@@ -1299,12 +1349,27 @@ export async function createFactory(opts: FactoryOptions) {
     const r = palette[B.LIQUID * 3]
     const g = palette[B.LIQUID * 3 + 1]
     const b = palette[B.LIQUID * 3 + 2]
-    for (let y = 0; y < H; y++) {
+    const x0 = liquidBounds ? liquidBounds[0] : 0
+    const y0 = liquidBounds ? liquidBounds[1] : 0
+    const z0 = liquidBounds ? liquidBounds[2] : 0
+    const x1 = liquidBounds ? liquidBounds[3] : W - 1
+    const y1 = liquidBounds ? liquidBounds[4] : H - 1
+    const z1 = liquidBounds ? liquidBounds[5] : D - 1
+    let minX = W, minY = H, minZ = D, maxX = -1, maxY = -1, maxZ = -1
+    for (let y = y0; y <= y1; y++) {
       const yOff = y << 14
-      for (let z = 0; z < D; z++) {
+      for (let z = z0; z <= z1; z++) {
         const yzOff = yOff | (z << 7)
-        for (let x = 0; x < W; x++) {
+        for (let x = x0; x <= x1; x++) {
           if (blocks[yzOff | x] !== B.LIQUID) continue
+          if (!liquidBounds) {
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+            if (z < minZ) minZ = z
+            if (z > maxZ) maxZ = z
+          }
           const open = get(x, y + 1, z) === B.AIR
           const topY = open ? 0.88 : 1
           for (const face of FACES) {
@@ -1324,6 +1389,7 @@ export async function createFactory(opts: FactoryOptions) {
         }
       }
     }
+    if (!liquidBounds && maxX >= 0) liquidBounds = [minX, minY, minZ, maxX, maxY, maxZ]
     if (liquid) {
       hubTerrain.remove(liquid)
       liquid.geometry.dispose()
@@ -1332,7 +1398,11 @@ export async function createFactory(opts: FactoryOptions) {
     if (pos.length) liquid = fixed(new Mesh(toGeometry(pos, col, uv, idx, 3), matScroll), hubTerrain)
   }
 
-  const rebuildWorld = (bounds?: [number, number, number, number, number, number] | null, withLiquid = true) => {
+  const rebuildWorld = (
+    bounds?: [number, number, number, number, number, number] | null,
+    withLiquid = true,
+    eagerCenter?: [number, number]
+  ) => {
     pending.clear()
     if (bounds === null) {
       top = 0
@@ -1390,7 +1460,23 @@ export async function createFactory(opts: FactoryOptions) {
     computeRoof()
     hubTop = top
     sunVol.fill(0)
-    for (let ci = 0; ci < chunks.length; ci++) buildChunk(ci)
+    if (eagerCenter) {
+      // Construir primero los 4 chunks más cercanos al jugador y diferir el resto a la cola (1/frame)
+      const [px, pz] = eagerCenter
+      const order = Array.from({ length: chunks.length }, (_, ci) => ci).sort((a, b) => {
+        const dax = ((a % CHUNKS_X) + 0.5) * CHUNK - px
+        const daz = (Math.floor(a / CHUNKS_X) + 0.5) * CHUNK - pz
+        const dbx = ((b % CHUNKS_X) + 0.5) * CHUNK - px
+        const dbz = (Math.floor(b / CHUNKS_X) + 0.5) * CHUNK - pz
+        return dax * dax + daz * daz - (dbx * dbx + dbz * dbz)
+      })
+      for (let i = 0; i < order.length; i++) {
+        if (i < 4) buildChunk(order[i])
+        else pending.add(order[i])
+      }
+    } else {
+      for (let ci = 0; ci < chunks.length; ci++) buildChunk(ci)
+    }
     if (withLiquid) buildLiquid()
   }
 
@@ -1599,7 +1685,7 @@ export async function createFactory(opts: FactoryOptions) {
     geo.setIndex(new BufferAttribute(new Uint16Array(idx), 1))
     const matCloud = new ShaderMaterial({
       transparent: true,
-      depthWrite: true,
+      depthWrite: false,
       uniforms: {
         uCloud: skyUniforms.uCloud,
         uSun: light.uSun,
@@ -1629,7 +1715,6 @@ export async function createFactory(opts: FactoryOptions) {
           vec3 col = uCloud * shade + uSun * sunEdge;
           float dist = length(vWorld.xz - cameraPosition.xz);
           float fade = smoothstep(185.0, 75.0, dist);
-          if (fade < 0.01) discard;
           col = mix(uHorizon, col, smoothstep(185.0, 95.0, dist));
           gl_FragColor = vec4(col, 0.88 * fade);
           #include <tonemapping_fragment>
@@ -1873,8 +1958,13 @@ export async function createFactory(opts: FactoryOptions) {
   numGeo.setAttribute('aTint', new BufferAttribute(nTint, 3))
   numGeo.setAttribute('aPulse', new BufferAttribute(nPulse, 1))
   numGeo.setIndex(new BufferAttribute(nIdx, 1))
-  await fontReady
-  const atlas = numbersAtlas()
+  let disposed = false
+  const { tex: atlas, canvas: atlasCanvas } = numbersAtlas()
+  fontReady.then(() => {
+    if (disposed) return
+    paintNumbersAtlas(atlasCanvas)
+    atlas.needsUpdate = true
+  })
   const numMat = new ShaderMaterial({
     uniforms: {
       uMap: { value: atlas },
@@ -1945,7 +2035,9 @@ export async function createFactory(opts: FactoryOptions) {
     paintDoor(i)
   })
   buildPortals()
-  rebuildWorld()
+  const bootX = save?.p?.length === 5 && save.p.every(Number.isFinite) ? save.p[0] : world.spawn.x
+  const bootZ = save?.p?.length === 5 && save.p.every(Number.isFinite) ? save.p[2] : world.spawn.z
+  rebuildWorld(undefined, true, [bootX, bootZ])
   hubSunDir.copy(sunDir)
 
   // Todos los objetos móviles de la fábrica (regalos, monedas, reliquias, avión, Ibai y dragón) en 1 solo BatchedMesh
@@ -2135,9 +2227,16 @@ export async function createFactory(opts: FactoryOptions) {
   const burst = (x: number, y: number, z: number, r: number, g: number, b: number, amount: number) => {
     for (let n = 0; n < amount; n++) {
       const i = bitNext++ % BITS
-      bitPos.set([x + Math.random(), y + Math.random(), z + Math.random()], i * 3)
-      bitVel.set([(Math.random() - 0.5) * 5, 2 + Math.random() * 3.5, (Math.random() - 0.5) * 5], i * 3)
-      bitCol.set([r, g, b], i * 3)
+      const i3 = i * 3
+      bitPos[i3] = x + Math.random()
+      bitPos[i3 + 1] = y + Math.random()
+      bitPos[i3 + 2] = z + Math.random()
+      bitVel[i3] = (Math.random() - 0.5) * 5
+      bitVel[i3 + 1] = 2 + Math.random() * 3.5
+      bitVel[i3 + 2] = (Math.random() - 0.5) * 5
+      bitCol[i3] = r
+      bitCol[i3 + 1] = g
+      bitCol[i3 + 2] = b
       bitLife[i] = 0.7
     }
     bitGeo.attributes.color.needsUpdate = true
@@ -2310,6 +2409,8 @@ export async function createFactory(opts: FactoryOptions) {
     if (lit) {
       computeLight(x - LIGHT_MAX, y - LIGHT_MAX, z - LIGHT_MAX, x + LIGHT_MAX, y + LIGHT_MAX, z + LIGHT_MAX)
     }
+    if (GLOW[type]) hubGlowCells.add(index)
+    else if (GLOW[previous]) hubGlowCells.delete(index)
     if (lamp || lampNear) buildGlows()
     if (OPAQUE[type] !== OPAQUE[previous]) {
       sunVol.fill(0)
@@ -3025,6 +3126,7 @@ export async function createFactory(opts: FactoryOptions) {
       const dz = c[2] - pos.z
       if (dx * dx + dy * dy + dz * dz < 1.7) {
         coinTaken[i] = true
+        propBatch.setVisibleAt(coinIds[i], false)
         dirty = true
         burstBlock(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5, B.GOLD, 14)
         opts.onCoins(coinCount(), world.coins.length, true)
@@ -3038,6 +3140,7 @@ export async function createFactory(opts: FactoryOptions) {
       const dz = c[2] - pos.z
       if (dx * dx + dy * dy + dz * dz < 2.25) {
         relicTaken[i] = true
+        propBatch.setVisibleAt(relicIds[i], false)
         burst(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5, 0.13, 0.78, 0.69, 24)
         opts.onRelic(i)
       }
@@ -3241,8 +3344,8 @@ export async function createFactory(opts: FactoryOptions) {
     const arc = Math.sin(swing * Math.PI)
     const sway = Math.sin(stride * 0.95) * 0.012
     const weapon = stage?.def.weapon
-    // También en primera persona, por su sombra
-    if (!space) {
+    // También en primera persona solo si proyecta sombra
+    if (!space && (avatar.visible || shadows)) {
       const moveSpeed = Math.hypot(vel.x, vel.z)
       const goal = onGround ? Math.min(1, moveSpeed / 4.8) : inLiquid ? 0.5 : 0.35
       gait += (goal - gait) * Math.min(1, dt * 10)
@@ -3333,7 +3436,7 @@ export async function createFactory(opts: FactoryOptions) {
     }
     blobCount = stage ? blobStage : 0
     blob(pos.x, pos.y, pos.z, 0.42)
-    if (!stage) peers.update(dt, time, blob)
+    if (!stage) peers.update(dt, time, blob, camera.position)
 
     if (bitsAlive > 0) {
       bits.visible = true
@@ -3371,10 +3474,7 @@ export async function createFactory(opts: FactoryOptions) {
 
       q.setFromAxisAngle(UP, time * 2.4)
       for (let i = 0; i < world.coins.length; i++) {
-        if (coinTaken[i]) {
-          propBatch.setVisibleAt(coinIds[i], false)
-          continue
-        }
+        if (coinTaken[i]) continue
         const c = world.coins[i]
         propBatch.setMatrixAt(coinIds[i], m4.compose(p.set(c[0], c[1] + Math.sin(time * 2 + i) * 0.12, c[2]), q, one))
         blob(c[0], c[1], c[2], 0.28)
@@ -3382,10 +3482,7 @@ export async function createFactory(opts: FactoryOptions) {
 
       q.setFromAxisAngle(UP, -time * 1.6)
       for (let i = 0; i < world.relics.length; i++) {
-        if (relicTaken[i]) {
-          propBatch.setVisibleAt(relicIds[i], false)
-          continue
-        }
+        if (relicTaken[i]) continue
         const c = world.relics[i]
         scale.setScalar(1.1 + Math.sin(time * 4 + i) * 0.08)
         propBatch.setMatrixAt(relicIds[i], m4.compose(p.set(c[0], c[1] + Math.sin(time * 1.7 + i) * 0.18, c[2]), q, scale))
@@ -3628,6 +3725,7 @@ export async function createFactory(opts: FactoryOptions) {
       } catch {}
     },
     dispose() {
+      disposed = true
       persist()
       renderer.setAnimationLoop(null)
       if (locked()) document.exitPointerLock()
@@ -3650,6 +3748,7 @@ export async function createFactory(opts: FactoryOptions) {
       for (const chunk of stageChunks) chunk?.geometry.dispose()
       liquid?.geometry.dispose()
       disposeModels(models)
+      disposeShmupModels()
       peers.dispose()
       for (const item of disposables) item.dispose()
       doorBatch.dispose()

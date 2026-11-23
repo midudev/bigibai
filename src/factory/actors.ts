@@ -781,12 +781,21 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
   const bars = def.boss === 'clock' ? add(new InstancedMesh(models.segment, ctx.mat, BEAMS * BEAM_SEGMENTS)) : null
   const bar = Array.from({ length: BEAMS }, () => ({ a: 0, len: 0, on: false }))
   if (bars) for (let i = 0; i < BEAMS * BEAM_SEGMENTS; i++) bars.setMatrixAt(i, hide)
+  let barsColorDirty = false
+  let barsWereOn = false
   const beam = (slot: number, a: number, len: number, hex: number) => {
     Object.assign(bar[slot], { a, len, on: true })
-    for (let k = 0; k < BEAM_SEGMENTS; k++) bars?.setColorAt(slot * BEAM_SEGMENTS + k, color.set(hex))
+    if (bars) {
+      color.set(hex)
+      for (let k = 0; k < BEAM_SEGMENTS; k++) bars.setColorAt(slot * BEAM_SEGMENTS + k, color)
+      barsColorDirty = true
+    }
   }
   const updateBeams = () => {
     if (!bars) return
+    const anyOn = bar.some((b) => b.on)
+    if (!anyOn && !barsWereOn) return
+    barsWereOn = anyOn
     bar.forEach((b, i) => {
       const dx = Math.sin(b.a)
       const dz = Math.cos(b.a)
@@ -805,7 +814,10 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
       b.on = false
     })
     bars.instanceMatrix.needsUpdate = true
-    if (bars.instanceColor) bars.instanceColor.needsUpdate = true
+    if (barsColorDirty && bars.instanceColor) {
+      bars.instanceColor.needsUpdate = true
+      barsColorDirty = false
+    }
   }
 
   // Bichos: cada fase tiene su especie y su manera de moverse
@@ -813,7 +825,7 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
   const species = def.critter ?? { model: 'hamster' as const, mode: 'wander' as const, hex: 0xc98a4b }
   const { mode } = species
   const critter = def.critters.map((c, i) => ({
-    ...c, hx: c.x, hz: c.z, a: i * 1.7, alive: true, hp: def.critterHp * DAMAGE, flash: 0, think: 0, dying: 0, wait: c.delay ?? 0, awake: mode !== 'mimic',
+    ...c, hx: c.x, hz: c.z, a: i * 1.7, alive: true, hp: def.critterHp * DAMAGE, flash: 0, think: 0, dying: 0, wait: c.delay ?? 0, awake: mode !== 'mimic', hidden: true,
     target: null as unknown as Target,
   }))
   const critters = critter.length ? add(new InstancedMesh(models[species.model], ctx.mat, critter.length)) : null
@@ -861,24 +873,36 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
     targets.push(c.target)
   })
   if (counted) horde()
-  const AXES = [0, Math.PI / 2, Math.PI, -Math.PI / 2]
+  const axesBuf = [0, Math.PI / 2, Math.PI, -Math.PI / 2]
   const free = (c: { x: number; y: number; z: number }, a: number, d: number) =>
     !ctx.solid(Math.floor(c.x + Math.sin(a) * d), Math.floor(c.y + 0.3), Math.floor(c.z + Math.cos(a) * d))
   const updateCritters = (dt: number) => {
     if (!critters) return
-    critter.forEach((c, i) => {
+    let dirty = false
+    for (let i = 0; i < critter.length; i++) {
+      const c = critter[i]
       if (!c.alive) {
-        if (c.dying <= 0) return critters.setMatrixAt(i, hide)
+        if (c.dying <= 0) {
+          if (!c.hidden) {
+            critters.setMatrixAt(i, hide)
+            c.hidden = true
+            dirty = true
+          }
+          continue
+        }
         c.dying -= dt
         const k = 1 - Math.max(0, c.dying) / CRITTER_DYING
         q.setFromAxisAngle(up, c.a)
         const size = 1.25 - k * 0.5
-        return critters.setMatrixAt(i, m4.compose(p.set(c.x, c.y + Math.sin(k * Math.PI) * 0.6, c.z), q, s.set(size, size, size)))
+        critters.setMatrixAt(i, m4.compose(p.set(c.x, c.y + Math.sin(k * Math.PI) * 0.6, c.z), q, s.set(size, size, size)))
+        c.hidden = false
+        dirty = true
+        continue
       }
       if (c.wait > 0) {
         // Todavía no ha salido del horno
         c.wait -= dt
-        if (c.wait > 0) return
+        if (c.wait > 0) continue
         c.target.y = c.y + 0.3
         ctx.burst(c.x - 0.5, c.y, c.z - 0.5, species.hex, 8)
       }
@@ -913,8 +937,22 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
         if (blocked || c.think <= 0) {
           c.think = 0.9
           const chase = Math.abs(pos.x - c.x) > Math.abs(pos.z - c.z) ? (pos.x > c.x ? Math.PI / 2 : -Math.PI / 2) : pos.z > c.z ? 0 : Math.PI
-          const options = (far < 9 && !blocked ? [chase] : []).concat(AXES.slice().sort(() => Math.random() - 0.5))
-          c.a = options.find((a) => free(c, a, 0.9)) ?? c.a
+          if (far < 9 && !blocked && free(c, chase, 0.9)) {
+            c.a = chase
+          } else {
+            for (let k = 3; k > 0; k--) {
+              const j = Math.floor(Math.random() * (k + 1))
+              const tmp = axesBuf[k]
+              axesBuf[k] = axesBuf[j]
+              axesBuf[j] = tmp
+            }
+            for (let k = 0; k < 4; k++) {
+              if (free(c, axesBuf[k], 0.9)) {
+                c.a = axesBuf[k]
+                break
+              }
+            }
+          }
         }
       }
       c.x += Math.sin(c.a) * speed * hard * dt
@@ -924,9 +962,11 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
       if (c.awake && far < 0.75 && Math.abs(pos.y - c.y) < 1.2) ctx.hurt(pos.x - c.x, pos.z - c.z)
       q.setFromAxisAngle(up, c.a)
       critters.setMatrixAt(i, m4.compose(p.set(c.x, c.y + Math.abs(Math.sin(time * 9 + i)) * hop, c.z), q, s.set(1, 1, 1)))
+      c.hidden = false
+      dirty = true
       ctx.blob(c.x, c.y, c.z, 0.45)
-    })
-    critters.instanceMatrix.needsUpdate = true
+    }
+    if (dirty) critters.instanceMatrix.needsUpdate = true
   }
 
   // Monedas del laberinto y cuenta atrás
@@ -1035,7 +1075,7 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
   const lane = def.lane
   const laneTop = (z: number) => (lane ? lane.y + 1 + (lane.step ? Math.max(0, Math.floor((80 - Math.max(z, lane.z1)) / lane.step)) : 0) : 0)
   const MARBLES = [0xe0489a, 0x21c7b0, 0xf8b132, 0x8a55e0, 0x3a74c4, 0xc8323c, 0x9be04a]
-  const marble = Array.from({ length: def.kind === 'ramp' ? MARBLES.length + Math.round(def.level * 4) : 0 }, (_, i) => ({ x: 0, y: 0, z: 0, vx: 0, vz: 0, wait: 2 + i * 1.3, roll: 0 }))
+  const marble = Array.from({ length: def.kind === 'ramp' ? MARBLES.length + Math.round(def.level * 4) : 0 }, (_, i) => ({ x: 0, y: 0, z: 0, vx: 0, vz: 0, wait: 2 + i * 1.3, roll: 0, hidden: true }))
   const marbles = marble.length ? add(new InstancedMesh(models.marble, ctx.mat, marble.length)) : null
   marble.forEach((_, i) => {
     marbles!.setColorAt(i, color.set(MARBLES[i % MARBLES.length]))
@@ -1044,10 +1084,19 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
   const axis = new Vector3(1, 0, 0)
   const updateMarbles = (dt: number) => {
     if (!marbles || !lane) return
-    marble.forEach((item, i) => {
+    let dirty = false
+    for (let i = 0; i < marble.length; i++) {
+      const item = marble[i]
       if (item.wait > 0) {
         item.wait -= dt
-        if (item.wait > 0) return marbles.setMatrixAt(i, hide)
+        if (item.wait > 0) {
+          if (!item.hidden) {
+            marbles.setMatrixAt(i, hide)
+            item.hidden = true
+            dirty = true
+          }
+          continue
+        }
         // Sale de arriba por un carril al azar; algunas bajan haciendo eses
         Object.assign(item, {
           x: lane.x0 + 1 + Math.random() * (lane.x1 - lane.x0 - 1), z: lane.z1 - 2, y: laneTop(lane.z1) + 0.8,
@@ -1064,9 +1113,11 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
       if (Math.hypot(pos.x - item.x, pos.y + 0.9 - item.y, pos.z - item.z) < 1.35) ctx.hurt(pos.x - item.x, 1)
       q.setFromAxisAngle(axis, item.roll / 0.8)
       marbles.setMatrixAt(i, m4.compose(p.set(item.x, item.y, item.z), q, s.set(1, 1, 1)))
+      item.hidden = false
+      dirty = true
       ctx.blob(item.x, item.y - 0.8, item.z, 0.8)
-    })
-    marbles.instanceMatrix.needsUpdate = true
+    }
+    if (dirty) marbles.instanceMatrix.needsUpdate = true
   }
 
   // Trampas del parkour: los sopletes avisan con una llama pequeña y las prensas tiemblan antes de caer
@@ -1470,7 +1521,8 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
       }
       cooldown = 0.36
       ctx.sound('swing')
-      for (const target of targets.slice()) {
+      for (let i = targets.length - 1; i >= 0; i--) {
+        const target = targets[i]
         p.set(target.x - eye.x, target.y - eye.y, target.z - eye.z)
         const reach = p.length()
         if (reach < 3.3 + target.r && p.dot(dir) / reach > 0.3) target.hit('sword', golden > 0 ? 2 : 1)
@@ -1492,7 +1544,8 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
         const a = (i / 12) * Math.PI * 2
         ctx.burst(pos.x - 0.5 + Math.cos(a) * 2.6, pos.y + 0.6, pos.z - 0.5 + Math.sin(a) * 2.6, 0xdfe8ff, 2)
       }
-      for (const target of targets.slice()) {
+      for (let i = targets.length - 1; i >= 0; i--) {
+        const target = targets[i]
         if (Math.hypot(target.x - pos.x, target.z - pos.z) < 4 + target.r && Math.abs(target.y - pos.y - 0.9) < 4) target.hit('sword', 2)
       }
       return true
