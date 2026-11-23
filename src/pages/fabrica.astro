@@ -1,0 +1,2117 @@
+---
+import '@/global.css'
+import { CAMPAIGN, NOTICES } from '@/data/campaign'
+import { cells } from '@/data/days-data'
+import { getCampaignDay, isExperienceEnabled } from '@/utils/campaign'
+import { isAdmin } from '@/utils/admin'
+import { supabaseAdmin } from '@/supabase-admin'
+
+const { now, user } = Astro.locals
+const experienceEnabled = isExperienceEnabled(now)
+const currentDay = experienceEnabled ? getCampaignDay(now) : 0
+
+// El premio se enseña a quien ya puede verlo en la casilla: calendario registrado o admin
+let canSeePrizes = isAdmin(user?.id)
+if (user && !canSeePrizes) {
+  const { count } = await supabaseAdmin
+    .from('coupons')
+    .select('*', { count: 'exact', head: true })
+    .eq('used_by', user.id)
+    .eq('is_used', true)
+  canSeePrizes = (count ?? 0) > 0
+}
+
+// Al cliente solo viaja lo que ya está desbloqueado
+const days = Array.from({ length: CAMPAIGN.totalDays }, (_, i) => {
+  const day = i + 1
+  const unlocked = day <= currentDay
+  return {
+    day,
+    state: !unlocked ? 'locked' : day === currentDay ? 'today' : 'unlocked',
+    prize: (unlocked && canSeePrizes && cells[i].gameData?.prize) || null,
+    video: (unlocked && canSeePrizes && cells[i].gameData?.videoUrl) || null,
+  }
+})
+
+const status = !experienceEnabled
+  ? 'La experiencia ha finalizado.'
+  : currentDay === 0
+    ? 'La primera puerta se abre el 1 de diciembre.'
+    : 'Abre las puertas encendidas y crúzalas.'
+
+const title = `La fábrica de regalos en 3D | ${CAMPAIGN.name}`
+const description = `Explora la fábrica de regalos de ${CAMPAIGN.name}: un mundo de bloques con 24 puertas, una por cada día de diciembre.`
+const canonical = new URL('/fabrica', Astro.site).href
+const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>{title}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#06143a" />
+    <link rel="preload" href="/fonts/press-start.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link rel="icon" type="image/svg+xml" href="/2026/ibai.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/cropped-favicon-32x32.png" />
+    <link rel="apple-touch-icon" href="/2026/apple-touch-icon.png" />
+  </head>
+  <body>
+    <main
+      id="factory"
+      class="factory is-paused"
+      data-days={JSON.stringify(days)}
+    >
+      <canvas
+        class="factory-canvas"
+        role="img"
+        aria-label="Mundo de bloques de la fábrica de regalos con 24 puertas numeradas"></canvas>
+
+      <p class="factory-loading" role="status">Generando el mundo…</p>
+
+      <div class="hud hud-head">
+        <a href="/#calendario" class="pixel-btn" aria-label="Salir de la fábrica">Salir</a>
+        <h1>La fábrica</h1>
+        <ul class="stats">
+          <li><span class="icon icon-door"></span><span data-progress>0</span>/{CAMPAIGN.totalDays}</li>
+          <li><span class="icon icon-coin"></span><span data-coins>0/0</span></li>
+          <li><span class="icon icon-star"></span><span data-stars>0</span></li>
+          <li class="level">Nv <span data-level>1</span><b data-points hidden></b></li>
+          <li data-secrets hidden></li>
+        </ul>
+      </div>
+
+      <div class="hud hud-tools">
+        <button type="button" class="pixel-btn" data-mute aria-pressed="true">Sin sonido</button>
+        <button type="button" class="pixel-btn" data-view aria-pressed="false">Cámara</button>
+        <button type="button" class="pixel-btn" data-help>Pausa</button>
+        <button type="button" class="pixel-btn" data-reset>Reiniciar</button>
+        <button type="button" class="pixel-btn" data-leave>Abandonar</button>
+      </div>
+
+      <span class="crosshair" aria-hidden="true"></span>
+      <span class="stick" aria-hidden="true"><i></i></span>
+
+      <div class="hud hud-pad">
+        <button type="button" class="pixel-btn" data-mode aria-pressed="false">Picar</button>
+        <button type="button" class="pixel-btn pad-special" data-special>Giro</button>
+        <button type="button" class="pixel-btn pad-jump" data-jump>Saltar</button>
+      </div>
+
+      <div class="hud hud-bottom">
+        <p class="hearts" data-hearts aria-label="Vidas"></p>
+        <ol class="hotbar" aria-label="Bloques"></ol>
+      </div>
+
+      <div class="hud stage-hud">
+        <p class="stage-goal" data-goal></p>
+        <div class="boss" data-boss hidden>
+          <span data-boss-name></span>
+          <div class="boss-bar"><i data-boss-fill></i></div>
+        </div>
+      </div>
+
+      <div class="stage-card" aria-live="polite">
+        <p data-card-day></p>
+        <h2 data-card-title></h2>
+        <p data-card-intro></p>
+      </div>
+
+      <section class="result" aria-labelledby="result-title" hidden>
+        <h2 id="result-title">Fin de la partida</h2>
+        <p>F en el chat. La fase te espera cuando quieras.</p>
+        <button type="button" class="pixel-btn pixel-btn--main" data-retry>Reintentar</button>
+        <button type="button" class="pixel-btn" data-leave>Volver a la fábrica</button>
+      </section>
+
+      <div class="victory" hidden>
+        <canvas class="victory-fx" data-victory-fx aria-hidden="true"></canvas>
+        <p class="victory-title" aria-hidden="true">
+          {[...'¡VICTORIA!'].map((letter, i) => <span style={`--i:${i}`}>{letter}</span>)}
+        </p>
+        <p class="victory-day" role="status" data-victory-day></p>
+        <p class="victory-stars" data-victory-stars aria-hidden="true"><i></i><i></i><i></i></p>
+        <p class="victory-prize" data-victory-prize></p>
+        <p class="victory-time" data-victory-time></p>
+      </div>
+
+      <span class="hurt" aria-hidden="true"></span>
+      <canvas class="iris" data-iris aria-hidden="true"></canvas>
+
+      <section class="start" aria-labelledby="start-title">
+        <h2 id="start-title" data-start-title>La fábrica de regalos</h2>
+        <p>{status}</p>
+        <ol class="doors" aria-label="Puertas de la fábrica">
+          {
+            days.map(({ day }) => (
+              <li>
+                <button type="button" class="door" data-door={day}>
+                  <span class="door-way" aria-hidden="true">
+                    <span class="door-leaf" />
+                  </span>
+                  <span class="door-num">{day}</span>
+                </button>
+              </li>
+            ))
+          }
+        </ol>
+        <p class="doors-hint">Elige una puerta para aparecer delante de ella.</p>
+        <button type="button" class="pixel-btn pixel-btn--main" data-play>Jugar</button>
+        <button type="button" class="pixel-btn" data-levelup hidden></button>
+        <ul class="controls controls-desktop">
+          <li><kbd>WASD</kbd> moverte · <kbd>Espacio</kbd> saltar</li>
+          <li><kbd>Clic</kbd> acción · <kbd>Clic derecho</kbd> especial</li>
+          <li><kbd>V</kbd> cámara en tercera persona</li>
+        </ul>
+        <ul class="controls controls-touch">
+          <li>Izquierda: andar · Derecha: mirar · Toca: acción</li>
+        </ul>
+        <p class="build" data-build></p>
+      </section>
+
+      <section class="levelup" role="dialog" aria-labelledby="levelup-title" hidden>
+        <h2 id="levelup-title">¡Subes de nivel!</h2>
+        <p data-levelup-points></p>
+        <ul>
+          {
+            [
+              ['strength', 'Fuerza'],
+              ['health', 'Vida'],
+              ['speed', 'Velocidad'],
+              ['defense', 'Defensa'],
+            ].map(([id, name]) => (
+              <li>
+                <button type="button" class="pixel-btn" data-stat={id}>
+                  <strong>{name}</strong>
+                  <span data-stat-level />
+                  <small data-stat-effect />
+                </button>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
+      <aside class="panel" role="dialog" aria-labelledby="panel-title" hidden>
+        <button type="button" class="panel-close" data-close aria-label="Cerrar">×</button>
+        <img data-panel-image alt="" width="120" height="190" decoding="async" />
+        <div>
+          <p class="panel-eyebrow" data-panel-eyebrow></p>
+          <h2 id="panel-title" data-panel-title></h2>
+          <dl>
+            <div>
+              <dt>Chocolatina</dt>
+              <dd data-panel-chocolate></dd>
+            </div>
+            <div>
+              <dt>Premio</dt>
+              <dd data-panel-prize></dd>
+            </div>
+          </dl>
+          <video data-panel-video playsinline muted loop controls hidden></video>
+          <a class="pixel-btn pixel-btn--main" data-panel-cta href="/"></a>
+          <p class="panel-note">{NOTICES.gamesAreOptional}</p>
+        </div>
+      </aside>
+
+      <p class="toast" role="status" aria-live="polite"></p>
+    </main>
+  </body>
+</html>
+
+<style is:global>
+  @font-face {
+    font-family: 'Pixel';
+    src: url('/fonts/press-start.woff2') format('woff2');
+    font-display: swap;
+  }
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: #06143a;
+  }
+</style>
+
+<style>
+  .factory {
+    --ink: #10204a;
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    overflow: clip;
+    color: #fff;
+    font-family: 'Pixel', monospace;
+    font-size: 10px;
+    line-height: 1.6;
+    text-shadow: 2px 2px 0 #000a;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* Viñeta suave por encima del mundo y por debajo del HUD */
+  .factory::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, #00000073 100%);
+    pointer-events: none;
+  }
+  .is-playing [data-reset] {
+    display: none;
+  }
+  .pixel-btn[data-view][aria-pressed='true'] {
+    background: #2456b8;
+  }
+  .pixel-btn[data-mute][aria-pressed='true'] {
+    background: #8f3b3b;
+  }
+  .factory-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  .is-ready .factory-canvas {
+    opacity: 1;
+  }
+  .factory-loading {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    text-align: center;
+    color: var(--brand-accent);
+    font-size: 12px;
+    pointer-events: none;
+  }
+  .is-ready .factory-loading {
+    display: none;
+  }
+
+  .pixel-btn {
+    display: inline-grid;
+    place-items: center;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 3px solid #000;
+    background: #5b6b8f;
+    color: #fff;
+    font: inherit;
+    text-shadow: 2px 2px 0 #0009;
+    box-shadow:
+      inset 3px 3px 0 #ffffff55,
+      inset -3px -3px 0 #0006;
+    cursor: pointer;
+  }
+  .pixel-btn:hover {
+    background: #7385b0;
+  }
+  .pixel-btn:active,
+  .pixel-btn[aria-pressed='true'] {
+    box-shadow:
+      inset -3px -3px 0 #ffffff55,
+      inset 3px 3px 0 #0006;
+  }
+  .pixel-btn[aria-pressed='true'] {
+    background: #2f8f5b;
+  }
+  .pixel-btn--main {
+    min-height: 48px;
+    padding-inline: 22px;
+    background: var(--brand-accent);
+    color: var(--ink);
+    font-size: 12px;
+    text-shadow: none;
+  }
+  .pixel-btn--main:hover {
+    background: var(--brand-hover);
+  }
+  .factory :focus-visible {
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+  }
+
+  .hud {
+    position: absolute;
+    display: flex;
+    gap: 8px;
+  }
+  .factory:not(.is-ready) .hud {
+    visibility: hidden;
+  }
+  .hud-head {
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    align-items: center;
+    flex-wrap: wrap;
+    max-width: calc(100% - 20px);
+  }
+  .factory h1,
+  .factory h2 {
+    font-family: inherit;
+    letter-spacing: 0;
+  }
+  .hud-head h1 {
+    font-size: 12px;
+    font-weight: normal;
+  }
+  .stats {
+    display: flex;
+    gap: 12px;
+    padding: 6px 10px;
+    background: #0008;
+    list-style: none;
+  }
+  .stats li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stats [data-secrets] {
+    color: var(--status-success);
+  }
+  .icon {
+    width: 10px;
+    height: 12px;
+    background: var(--brand-accent);
+    box-shadow: inset -2px -2px 0 #0005;
+  }
+  .icon-coin {
+    height: 10px;
+    background: #ffe08a;
+  }
+  .icon-star {
+    width: 12px;
+    background: #fff;
+    clip-path: polygon(50% 0, 63% 35%, 100% 38%, 71% 60%, 82% 100%, 50% 76%, 18% 100%, 29% 60%, 0 38%, 37% 35%);
+    box-shadow: none;
+  }
+  .pad-special {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    font-size: 8px;
+  }
+  .pad-special.is-cooling {
+    background: #2a3350;
+    color: #8496bd;
+  }
+  .factory:not(.in-stage) [data-special] {
+    display: none;
+  }
+  .hud-tools {
+    top: max(10px, env(safe-area-inset-top));
+    right: max(10px, env(safe-area-inset-right));
+  }
+
+  .crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    translate: -50% -50%;
+    background:
+      linear-gradient(#fff, #fff) center / 2px 100% no-repeat,
+      linear-gradient(#fff, #fff) center / 100% 2px no-repeat;
+    mix-blend-mode: difference;
+    pointer-events: none;
+  }
+  .is-selfie .crosshair,
+  .is-paused .crosshair,
+  .factory:not(.is-ready) .crosshair {
+    display: none;
+  }
+  .is-flying .crosshair,
+  .is-flying .stick,
+  .is-flying [data-jump],
+  .is-flying [data-view] {
+    display: none;
+  }
+  .stick {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: none;
+    width: 96px;
+    height: 96px;
+    margin: -48px 0 0 -48px;
+    border: 3px solid #fff6;
+    border-radius: 50%;
+    background: #0003;
+    pointer-events: none;
+  }
+  .stick.is-active {
+    display: block;
+  }
+  .stick i {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+    border-radius: 50%;
+    background: #fffa;
+  }
+
+  .hud-pad {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: 78px;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .pad-jump {
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+  }
+  .is-paused .hud-pad {
+    display: none;
+  }
+
+  .hud-bottom {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    background: linear-gradient(transparent, #0009 60%);
+    pointer-events: none;
+  }
+  .hud-bottom > * {
+    max-width: 100%;
+    pointer-events: auto;
+  }
+  .hotbar {
+    display: flex;
+    margin: 0;
+    padding: 2px 10px;
+    overflow-x: auto;
+    list-style: none;
+    scrollbar-width: none;
+    touch-action: pan-x;
+  }
+  .hotbar {
+    gap: 0;
+  }
+  .hotbar :global(button) {
+    position: relative;
+    display: block;
+    width: 46px;
+    height: 46px;
+    border: 3px solid #1a1a1a;
+    background: #3a3f4bcc;
+    box-shadow:
+      inset 3px 3px 0 #0006,
+      inset -3px -3px 0 #fff3;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+  }
+  .hotbar :global(button[aria-pressed='true']) {
+    border-color: #fff;
+    z-index: 1;
+  }
+  .hotbar :global(i) {
+    position: absolute;
+    inset: 3px 3px 5px;
+    background: var(--block) center / contain no-repeat;
+    filter: drop-shadow(0 2px 0 #0006);
+  }
+  .hotbar :global(b) {
+    position: absolute;
+    right: 3px;
+    bottom: 1px;
+    font-size: 8px;
+    font-weight: normal;
+    text-shadow: 1px 1px 0 #000;
+  }
+  .start {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: none;
+    gap: 14px;
+    justify-items: center;
+    width: min(520px, calc(100% - 24px));
+    max-height: calc(100% - 120px);
+    padding: 22px 18px;
+    border: 3px solid #000;
+    background: #0b1d3eee;
+    box-shadow:
+      inset 3px 3px 0 #ffffff33,
+      inset -3px -3px 0 #0008;
+    overflow-y: auto;
+    text-align: center;
+    translate: -50% -56%;
+  }
+  .is-ready.is-paused:not(.has-panel) .start {
+    display: grid;
+  }
+  .start h2 {
+    color: var(--brand-accent);
+    font-size: 15px;
+    font-weight: normal;
+    line-height: 1.5;
+  }
+  .doors {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  /* Cada botón es una puerta: marco, placa con el número y una hoja que gira sobre la bisagra */
+  .door {
+    --leaf: #2c3d66;
+    --leaf-hi: #4a5f94;
+    --leaf-lo: #18223f;
+    --knob: #6f83ad;
+    --plate: #8496bd;
+    --way: #050d24;
+    --open: 0deg;
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    padding: 0;
+    border: 3px solid #000;
+    background: #3a4a75;
+    color: var(--ink);
+    font: inherit;
+    text-align: center;
+    text-shadow: none;
+    box-shadow:
+      inset 3px 3px 0 #ffffff2e,
+      inset -3px -3px 0 #0007;
+    cursor: pointer;
+  }
+  .door:hover {
+    background: #4a5c8f;
+  }
+  .door-way {
+    position: absolute;
+    inset: 11px 16% 0;
+    border: 2px solid #000;
+    border-bottom: 0;
+    background: var(--way);
+    perspective: 140px;
+    overflow: hidden;
+  }
+  .door-leaf {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(var(--knob) 0 0) right 2px top 54% / 3px 3px no-repeat,
+      var(--leaf);
+    box-shadow:
+      inset 2px 2px 0 var(--leaf-hi),
+      inset -2px 0 0 var(--leaf-lo);
+    transform-origin: left center;
+    transform: rotateY(var(--open));
+    transition: transform 0.3s cubic-bezier(0.3, 1.4, 0.6, 1);
+  }
+  .door-leaf::before,
+  .door-leaf::after {
+    content: '';
+    position: absolute;
+    inset-inline: 20%;
+    border: 2px solid;
+    border-color: var(--leaf-lo) var(--leaf-hi) var(--leaf-hi) var(--leaf-lo);
+  }
+  .door-leaf::before {
+    top: 26%;
+    height: 22%;
+  }
+  .door-leaf::after {
+    top: 58%;
+    bottom: 9%;
+  }
+  .door-num {
+    position: absolute;
+    top: 2px;
+    left: 50%;
+    min-width: 22px;
+    padding: 3px 3px 2px;
+    border: 2px solid #000;
+    background: var(--plate);
+    font-size: 8px;
+    line-height: 1;
+    box-shadow: inset -2px -2px 0 #0003;
+    translate: -50% 0;
+  }
+  .door[data-state='locked'] .door-leaf {
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 8' shape-rendering='crispEdges'%3E%3Cpath fill='%23b9c6e4' d='M2 0h3v1H2zM1 1h1v2H1zM5 1h1v2H5z'/%3E%3Cpath fill='%238fa3cc' d='M0 3h7v5H0z'/%3E%3Cpath fill='%2318223f' d='M3 4h1v2H3z'/%3E%3C/svg%3E"),
+      linear-gradient(var(--knob) 0 0);
+    background-position:
+      50% 78%,
+      right 2px top 54%;
+    background-size:
+      14px 16px,
+      3px 3px;
+    background-repeat: no-repeat;
+  }
+  .door[data-state='locked'] .door-leaf::after {
+    display: none;
+  }
+  .door[data-state='unlocked'],
+  .door[data-state='today'],
+  .door[data-state='opened'] {
+    --leaf: #f8b132;
+    --leaf-hi: #ffd98a;
+    --leaf-lo: #ad701c;
+    --knob: #fff2c4;
+    --plate: #fff2c4;
+    --way: radial-gradient(circle at 70% 55%, #fff 0 18%, #ffe08a 19% 45%, #f8b132 46%);
+  }
+  /* La de hoy, entreabierta y con el marco parpadeando */
+  .door[data-state='today'] {
+    --open: 34deg;
+    outline: 3px solid #fff;
+    outline-offset: 0;
+    animation: door-today 1s steps(1) infinite;
+  }
+  /* Abierta: detrás está el portal a su fase */
+  .door[data-state='opened'],
+  .door[data-state='done'] {
+    --open: 74deg;
+    --way: radial-gradient(circle at 60% 55%, #e9fffb 0 9%, #21c7b0 10% 24%, #0f6f8f 25% 40%, #0b3a6b 41% 56%, #06143a 57%);
+  }
+  .door[data-state='done'] {
+    --leaf: #91e4bc;
+    --leaf-hi: #d2f7e5;
+    --leaf-lo: #3f9c78;
+    --knob: #fff;
+    --plate: #91e4bc;
+  }
+  .door[data-state='done'] .door-way::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'%3E%3Cpath fill='%23ffd24a' d='M4 0h1v2H4zM3 2h3v1H3zM0 3h9v1H0zM1 4h7v1H1zM2 5h5v1H2zM2 6h2v1H2zM5 6h2v1H5zM1 7h2v1H1zM6 7h2v1H6zM1 8h1v1H1zM7 8h1v1H7z'/%3E%3C/svg%3E")
+      60% 56% / 18px 18px no-repeat;
+    filter: drop-shadow(2px 2px 0 #000);
+  }
+  @media (hover: hover) {
+    .door[data-state='unlocked']:hover,
+    .door[data-state='today']:hover {
+      --open: 56deg;
+    }
+    .door[data-state='opened']:hover,
+    .door[data-state='done']:hover {
+      --open: 82deg;
+    }
+    .door[data-state='locked']:hover .door-leaf {
+      animation: door-rattle 0.4s ease-in-out;
+    }
+  }
+  @keyframes door-today {
+    50% {
+      outline-color: var(--brand-accent);
+    }
+  }
+  @keyframes door-rattle {
+    30% {
+      rotate: y 16deg;
+    }
+    60% {
+      rotate: y 4deg;
+    }
+    80% {
+      rotate: y 9deg;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .door-leaf {
+      transition: none;
+    }
+    .door[data-state='today'],
+    .door[data-state='locked']:hover .door-leaf {
+      animation: none;
+    }
+  }
+  .doors-hint {
+    color: #cbd6f2;
+    font-size: 9px;
+  }
+  .in-stage .doors,
+  .in-stage .doors-hint {
+    display: none;
+  }
+  @media (max-width: 520px) {
+    .doors {
+      grid-template-columns: repeat(6, 1fr);
+    }
+  }
+  .controls {
+    display: grid;
+    gap: 8px;
+    padding: 0;
+    color: #cbd6f2;
+    font-size: 9px;
+    list-style: none;
+  }
+  .controls kbd {
+    padding: 2px 5px;
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+    text-shadow: none;
+  }
+  .controls-touch {
+    display: none;
+  }
+  @media (pointer: coarse), (hover: none) {
+    .controls-desktop {
+      display: none;
+    }
+    .controls-touch {
+      display: grid;
+    }
+  }
+  @media (pointer: fine) and (hover: hover) {
+    .hud-pad {
+      display: none;
+    }
+  }
+
+  /* Fases */
+  .stage-hud {
+    top: calc(max(10px, env(safe-area-inset-top)) + 50px);
+    left: 50%;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: min(420px, calc(100% - 24px));
+    translate: -50% 0;
+    pointer-events: none;
+  }
+  .factory:not(.in-stage) .stage-hud,
+  .factory:not(.in-stage) .hearts,
+  .factory:not(.in-stage) [data-leave],
+  .in-stage .hotbar,
+  .in-stage [data-mode],
+  .in-stage [data-reset] {
+    display: none;
+  }
+  .hearts {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    margin-bottom: 6px;
+    pointer-events: none;
+  }
+  .hearts :global(i) {
+    width: 27px;
+    height: 27px;
+    margin-right: -3px;
+    background: var(--heart) center / contain no-repeat;
+    image-rendering: pixelated;
+  }
+  .hearts :global(i.is-empty) {
+    background-image: var(--heart-empty);
+  }
+  .hearts :global(i.shield) {
+    margin-left: 8px;
+    background-image: var(--shield);
+  }
+  .hearts :global(i.shield.is-empty) {
+    background-image: var(--shield-empty);
+  }
+  .hearts :global(i.is-lost) {
+    animation: heart-lost 0.5s steps(1);
+  }
+  .hearts.is-low :global(i) {
+    animation: heart-low 0.25s steps(2) infinite;
+  }
+  .hearts.is-low :global(i:nth-child(even)) {
+    animation-delay: -0.12s;
+  }
+  @keyframes heart-lost {
+    0%,
+    40% {
+      background-image: var(--heart-flash);
+    }
+    20%,
+    60% {
+      background-image: var(--heart-empty);
+    }
+  }
+  @keyframes heart-low {
+    50% {
+      translate: 0 -2px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hearts :global(i) {
+      animation: none !important;
+    }
+  }
+  .stage-goal {
+    padding: 4px 10px;
+    background: #0008;
+  }
+  .stage-goal:empty {
+    display: none;
+  }
+  .boss {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    text-align: center;
+  }
+  .boss[hidden] {
+    display: none;
+  }
+  .boss-bar {
+    height: 14px;
+    border: 3px solid #000;
+    background: #2a0d12;
+  }
+  .boss-bar i {
+    display: block;
+    height: 100%;
+    background: #e63946;
+    box-shadow: inset 0 3px 0 #ffffff55;
+    transition: width 0.2s ease;
+  }
+  .stage-card {
+    position: absolute;
+    bottom: 96px;
+    left: 50%;
+    display: grid;
+    gap: 10px;
+    width: min(560px, calc(100% - 24px));
+    padding: 18px;
+    border: 3px solid #000;
+    background: #0b1d3eee;
+    text-align: center;
+    opacity: 0;
+    translate: -50% -20px;
+    pointer-events: none;
+    transition:
+      opacity 0.3s ease,
+      translate 0.3s ease;
+  }
+  .is-paused .stage-card {
+    visibility: hidden;
+  }
+  .stage-card.is-visible {
+    opacity: 1;
+    translate: -50% 0;
+  }
+  .stage-card h2 {
+    color: var(--brand-accent);
+    font-size: 16px;
+    font-weight: normal;
+    line-height: 1.5;
+  }
+  .stage-card p {
+    color: #cbd6f2;
+    font-size: 9px;
+  }
+  .result {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: grid;
+    gap: 14px;
+    justify-items: center;
+    width: min(420px, calc(100% - 24px));
+    padding: 24px 18px;
+    border: 3px solid #000;
+    background: #2a0d12f2;
+    text-align: center;
+    translate: -50% -50%;
+    z-index: 2;
+  }
+  .result[hidden] {
+    display: none;
+  }
+  .result h2 {
+    color: #ff8a94;
+    font-size: 16px;
+    font-weight: normal;
+  }
+  .has-result .start,
+  .has-levelup .start {
+    display: none !important;
+  }
+  .stats .level b {
+    color: var(--status-success);
+    font-weight: normal;
+  }
+  .build {
+    color: #cbd6f2;
+    font-size: 9px;
+    line-height: 1.8;
+  }
+  .levelup {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: grid;
+    gap: 14px;
+    justify-items: center;
+    width: min(520px, calc(100% - 24px));
+    max-height: calc(100% - 24px);
+    padding: 22px 18px;
+    border: 3px solid #000;
+    background: #0b1d3ef2;
+    box-shadow:
+      inset 3px 3px 0 #ffffff33,
+      inset -3px -3px 0 #0008;
+    overflow-y: auto;
+    text-align: center;
+    translate: -50% -50%;
+    z-index: 4;
+  }
+  .levelup[hidden] {
+    display: none;
+  }
+  .levelup h2 {
+    color: var(--brand-accent);
+    font-size: 15px;
+    font-weight: normal;
+  }
+  .levelup p {
+    color: #cbd6f2;
+    font-size: 9px;
+  }
+  .levelup ul {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    width: 100%;
+    padding: 0;
+    list-style: none;
+  }
+  .levelup .pixel-btn {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+    min-height: 92px;
+    line-height: 1.5;
+  }
+  .levelup .pixel-btn:disabled {
+    background: #2b3a66;
+    color: #8f9cc0;
+    cursor: default;
+  }
+  .levelup strong {
+    color: var(--brand-accent);
+    font-size: 11px;
+    font-weight: normal;
+  }
+  .levelup .pixel-btn:disabled strong {
+    color: inherit;
+  }
+  .levelup span,
+  .levelup small {
+    font-size: 8px;
+  }
+  .levelup small {
+    color: #cbd6f2;
+  }
+  @media (max-width: 420px) {
+    .levelup ul {
+      grid-template-columns: 1fr;
+    }
+    .levelup .pixel-btn {
+      min-height: 70px;
+    }
+  }
+  .victory {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 20px;
+    overflow: hidden;
+    background: #0b1d3e99;
+    text-align: center;
+    pointer-events: none;
+    z-index: 2;
+    animation: victory-flash 0.6s steps(4, jump-none);
+  }
+  .victory[hidden] {
+    display: none;
+  }
+  .has-victory .start,
+  .has-victory .stage-card {
+    display: none !important;
+  }
+  .victory-fx {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    z-index: -1;
+  }
+  .victory-title {
+    color: var(--brand-accent);
+    font-size: clamp(26px, 8vw, 76px);
+    line-height: 1.2;
+    text-shadow: 0.08em 0.08em 0 #000;
+  }
+  .victory-title span {
+    display: inline-block;
+    animation:
+      victory-letter 0.4s steps(4, jump-none) both,
+      victory-bob 0.4s steps(2, jump-none) infinite alternate;
+    animation-delay: calc(var(--i) * 60ms), calc(2.2s + var(--i) * 80ms);
+  }
+  .victory-day,
+  .victory-time {
+    color: #fff;
+    font-size: clamp(10px, 2.4vw, 18px);
+    text-shadow: 3px 3px 0 #000;
+    animation: victory-letter 0.4s steps(4, jump-none) 0.8s both;
+  }
+  .victory-prize {
+    max-width: min(90vw, 760px);
+    color: var(--brand-accent);
+    font-size: clamp(12px, 3vw, 24px);
+    line-height: 1.5;
+    text-shadow: 3px 3px 0 #000;
+    text-wrap: balance;
+    animation: victory-letter 0.4s steps(4, jump-none) 4.3s both;
+  }
+  .victory-prize:empty {
+    display: none;
+  }
+  .victory-time {
+    color: #cbd6f2;
+    font-size: clamp(9px, 1.8vw, 13px);
+    animation-delay: 4.6s;
+  }
+  .victory-stars {
+    display: flex;
+    gap: 0.25em;
+    font-size: clamp(36px, 10vw, 84px);
+    line-height: 1;
+  }
+  .victory-stars i {
+    width: 1em;
+    height: 1em;
+    background: var(--star-empty) center / contain no-repeat;
+    image-rendering: pixelated;
+  }
+  .victory-stars i.is-on {
+    background-image: var(--star);
+    animation: victory-star 0.4s steps(4, jump-none) both;
+    animation-delay: 2.2s;
+  }
+  .victory-stars i.is-on:nth-child(2) {
+    animation-delay: 2.92s;
+  }
+  .victory-stars i.is-on:nth-child(3) {
+    animation-delay: 3.64s;
+  }
+  @keyframes victory-flash {
+    from {
+      background: #fff;
+    }
+  }
+  @keyframes victory-letter {
+    from {
+      opacity: 0;
+      scale: 0.2;
+      translate: 0 60px;
+    }
+  }
+  @keyframes victory-bob {
+    to {
+      translate: 0 -0.18em;
+    }
+  }
+  @keyframes victory-star {
+    from {
+      opacity: 0;
+      scale: 4;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .victory,
+    .victory * {
+      animation: none !important;
+    }
+  }
+  .hurt {
+    position: absolute;
+    inset: 0;
+    box-shadow: inset 0 0 120px 30px #e63946;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .hurt.is-on {
+    animation: hurt 0.5s ease-out;
+  }
+  @keyframes hurt {
+    from {
+      opacity: 0.9;
+    }
+  }
+  /* Cortinilla circular al cruzar una puerta */
+  .iris {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    image-rendering: pixelated;
+    z-index: 3;
+  }
+
+  .panel {
+    position: absolute;
+    top: 50%;
+    right: 16px;
+    display: grid;
+    gap: 14px;
+    width: min(360px, calc(100% - 24px));
+    padding: 20px;
+    border: 3px solid #000;
+    background: #0b1d3ef5;
+    box-shadow:
+      inset 3px 3px 0 #ffffff33,
+      inset -3px -3px 0 #0008;
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    text-shadow: none;
+    translate: 0 -50%;
+    user-select: text;
+    -webkit-user-select: text;
+    z-index: 2;
+  }
+  .panel[hidden] {
+    display: none;
+  }
+  .panel img {
+    width: 88px;
+    height: auto;
+    margin-inline: auto;
+    filter: drop-shadow(0 8px 12px #0009);
+  }
+  .panel-close {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 44px;
+    height: 44px;
+    color: #cbd6f2;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .panel-eyebrow,
+  .panel h2,
+  .panel dt,
+  .panel .pixel-btn {
+    font-family: 'Pixel', monospace;
+  }
+  .panel-eyebrow {
+    color: var(--brand-accent);
+    font-size: 9px;
+  }
+  .panel h2 {
+    margin-top: 6px;
+    padding-right: 30px;
+    font-size: 14px;
+    font-weight: normal;
+    line-height: 1.5;
+  }
+  .panel dl {
+    display: grid;
+    gap: 10px;
+    margin-block: 14px 16px;
+  }
+  .panel dt {
+    color: #a9bad6;
+    font-size: 8px;
+  }
+  .panel dd {
+    color: #cbd6f2;
+  }
+  .panel dd.is-prize {
+    color: var(--brand-accent);
+    font-size: 18px;
+    font-weight: bold;
+    line-height: 1.3;
+  }
+  .panel :global(small) {
+    display: block;
+    margin-top: 4px;
+    color: #a9bad6;
+    font-size: 11px;
+    font-weight: normal;
+  }
+  .panel video {
+    width: 100%;
+    margin-bottom: 16px;
+    border: 3px solid #000;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    object-fit: cover;
+  }
+  .panel video[hidden] {
+    display: none;
+  }
+  .panel .pixel-btn {
+    display: grid;
+  }
+  .panel-note {
+    margin-top: 12px;
+    color: #a9bad6;
+    font-size: 11px;
+  }
+
+  .toast {
+    position: absolute;
+    top: 64px;
+    left: 50%;
+    width: max-content;
+    max-width: calc(100% - 24px);
+    padding: 10px 14px;
+    border: 3px solid #000;
+    background: var(--brand-accent);
+    color: var(--ink);
+    text-align: center;
+    text-shadow: none;
+    opacity: 0;
+    translate: -50% -8px;
+    pointer-events: none;
+    transition:
+      opacity 0.2s ease,
+      translate 0.2s ease;
+  }
+  .in-stage .toast {
+    top: 150px;
+  }
+  .toast.is-visible {
+    opacity: 1;
+    translate: -50% 0;
+  }
+
+  .no-webgl .factory-canvas,
+  .no-webgl .hotbar,
+  .no-webgl .hud-pad,
+  .no-webgl .hud-tools,
+  .no-webgl .start {
+    display: none;
+  }
+  .no-webgl .hud-head {
+    visibility: visible;
+  }
+
+  @media (max-width: 760px) {
+    .hud-head h1 {
+      display: none;
+    }
+    .is-playing [data-mute],
+    .is-playing [data-leave] {
+      display: none;
+    }
+    .stage-hud {
+      top: calc(max(10px, env(safe-area-inset-top)) + 104px);
+    }
+    .hud-tools {
+      top: calc(max(10px, env(safe-area-inset-top)) + 48px);
+      flex-direction: column;
+      align-items: flex-end;
+    }
+    .panel {
+      top: auto;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      grid-template-columns: 72px 1fr;
+      align-items: start;
+      width: auto;
+      max-height: 62%;
+      padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+      overflow-y: auto;
+      font-size: 13px;
+      translate: none;
+    }
+    .panel img {
+      width: 72px;
+    }
+    .panel-note {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import type { DoorState, Factory, HotbarItem, SecretId, StageEvent, StageHud } from '@/factory/engine'
+  import { createAudio, type Sfx } from '@/factory/audio'
+  import { RELIC_COUNT, SPEED_STEP, STAT_IDS, STAT_MAX, STRENGTH_STEP, shieldTime, type PlayerStats, type StatId } from '@/factory/stats'
+
+  interface Day {
+    day: number
+    state: DoorState
+    prize: string | null
+    video: string | null
+  }
+
+  const OPENED_KEY = 'fabrica:abiertas'
+  const DONE_KEY = 'fabrica:superadas'
+  const STATS_KEY = 'fabrica:estadisticas'
+  const SECRETS_KEY = 'fabrica:secretos'
+  const SOUND_KEY = 'fabrica:sonido'
+  const LEVELS_KEY = 'fabrica:niveles'
+  const RELICS_KEY = 'fabrica:reliquias'
+  const SECRETS: Record<SecretId, string> = {
+    plane: 'Envío exprés: el avión acelera el reparto',
+    vat: 'Baño de chocolate: has llegado a la cuba',
+    ibai: 'BIG Ibai: lo has despertado',
+    crown: 'Regalos de oro: la corona es tuya',
+    dragon: 'El dragón de la cuba vive bajo la torre',
+    disco: 'Modo fiesta',
+  }
+
+  const readJson = <T,>(key: string, fallback: T): T => {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback
+    } catch {
+      return fallback
+    }
+  }
+  const readList = <T,>(key: string): T[] => {
+    const value = readJson<T[]>(key, [])
+    return Array.isArray(value) ? value : []
+  }
+  const saveJson = (key: string, value: unknown) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value))
+    } catch {}
+  }
+
+  const root = document.getElementById('factory')!
+  const $ = <T extends HTMLElement>(selector: string) => root.querySelector(selector) as T
+  const days: Day[] = JSON.parse(root.dataset.days ?? '[]')
+  const byDay = new Map(days.map((item) => [item.day, item]))
+  const unlocked = (day: number) => !!byDay.get(day) && byDay.get(day)!.state !== 'locked'
+  const opened = new Set(readList<number>(OPENED_KEY).filter(unlocked))
+  const done = new Set(readList<number>(DONE_KEY).filter(unlocked))
+  const found = new Set(readList<SecretId>(SECRETS_KEY).filter((id) => id in SECRETS))
+  // Intentos, victorias y mejor tiempo por fase, para el resumen del día 24
+  const stats = readJson<Record<number, { tries: number; wins: number; best: number; stars?: number }>>(STATS_KEY, {})
+  // Niveles: un punto por cada fase superada y por cada reliquia encontrada
+  const savedLevels = readJson<Partial<PlayerStats>>(LEVELS_KEY, {})
+  const levels = Object.fromEntries(
+    STAT_IDS.map((id) => [id, Math.max(0, Math.min(STAT_MAX, Math.floor(Number(savedLevels?.[id]) || 0)))])
+  ) as unknown as PlayerStats
+  const relics = new Set(readList<number>(RELICS_KEY).filter((i) => Number.isInteger(i) && i >= 0 && i < RELIC_COUNT))
+  const STAT_NAMES: Record<StatId, string> = { strength: 'Fuerza', health: 'Vida', speed: 'Velocidad', defense: 'Defensa' }
+  const STAT_EFFECTS: Record<StatId, (level: number) => string> = {
+    strength: (level) => `Daño +${Math.round(level * STRENGTH_STEP * 100)} %`,
+    health: (level) => `+${level} ${level === 1 ? 'corazón' : 'corazones'}`,
+    speed: (level) => `Velocidad +${Math.round(level * SPEED_STEP * 100)} %`,
+    defense: (level) => `Escudo cada ${shieldTime(level)} s`,
+  }
+  const levelup = $('.levelup')
+  const panel = $('.panel')
+  const panelVideo = $<HTMLVideoElement>('[data-panel-video]')
+  panelVideo.addEventListener('error', () => (panelVideo.hidden = true))
+  const PRIZE_NOTE = 'Es lo que se sortea en esta casilla: descubrirlo no significa haberlo ganado.'
+  const result = $('.result')
+  const toast = $('.toast')
+  const hotbar = $('.hotbar')
+  const stick = $('.stick')
+  const card = $('.stage-card')
+  const hurt = $('.hurt')
+  const modeButton = $('[data-mode]')
+  const specialButton = $('[data-special]')
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+  const touch = matchMedia('(pointer: coarse), (hover: none)').matches
+  let factory: Factory | null = null
+  let toastTimer = 0
+  let cardTimer = 0
+  let placing = false
+  let stageDay = 0
+  let stageStart = 0
+
+  const stateOf = (day: number): DoorState =>
+    done.has(day) ? 'done' : opened.has(day) ? 'opened' : (byDay.get(day)?.state ?? 'locked')
+
+  const spent = () => STAT_IDS.reduce((sum, id) => sum + levels[id], 0)
+  const points = () => Math.max(0, done.size + relics.size - spent())
+  const canLevel = () => points() > 0 && STAT_IDS.some((id) => levels[id] < STAT_MAX)
+  const paintLevels = () => {
+    const free = canLevel() ? points() : 0
+    $('[data-level]').textContent = String(1 + spent())
+    const badge = $('[data-points]')
+    badge.hidden = !free
+    badge.textContent = `+${free}`
+    $('[data-build]').textContent =
+      `Nivel ${1 + spent()} · ${STAT_IDS.map((id) => `${STAT_NAMES[id]} ${levels[id]}`).join(' · ')} · Reliquias ${relics.size}/${RELIC_COUNT}`
+    const more = $('[data-levelup]')
+    more.hidden = !free
+    more.textContent = `Subir de nivel (${free})`
+    $('[data-levelup-points]').textContent =
+      `Elige qué mejorar. ${free === 1 ? 'Te queda 1 punto' : `Te quedan ${free} puntos`}.`
+    for (const id of STAT_IDS) {
+      const button = $<HTMLButtonElement>(`[data-stat="${id}"]`)
+      const level = levels[id]
+      const maxed = level >= STAT_MAX
+      button.disabled = maxed
+      button.querySelector('[data-stat-level]')!.textContent = maxed ? `Nv ${level} · Máximo` : `Nv ${level} → ${level + 1}`
+      button.querySelector('[data-stat-effect]')!.textContent = STAT_EFFECTS[id](maxed ? level : level + 1)
+    }
+  }
+
+  const starsOf = (day: number) => '★'.repeat(stats[day]?.stars ?? 0).padEnd(3, '☆')
+  const DOOR_LABELS: Record<DoorState, string> = {
+    locked: 'cerrada',
+    unlocked: 'lista para abrir',
+    today: 'la de hoy, lista para abrir',
+    opened: 'abierta',
+    done: 'superada',
+  }
+  const paintDoors = () => {
+    for (const button of root.querySelectorAll<HTMLElement>('[data-door]')) {
+      const day = Number(button.dataset.door)
+      const state = stateOf(day)
+      button.dataset.state = state
+      button.setAttribute('aria-label', `Puerta ${day}: ${DOOR_LABELS[state]}`)
+    }
+  }
+  const paint = () => {
+    paintDoors()
+    $('[data-progress]').textContent = String(done.size)
+    $('[data-stars]').textContent = String(Object.values(stats).reduce((sum, entry) => sum + (entry.stars ?? 0), 0))
+    const secrets = $('[data-secrets]')
+    secrets.hidden = found.size === 0
+    secrets.textContent = `Secretos ${found.size}/${Object.keys(SECRETS).length}`
+  }
+
+  const audio = createAudio(readJson<string>(SOUND_KEY, 'off') !== 'on')
+  const muteButton = $('[data-mute]')
+  const paintMute = () => {
+    muteButton.textContent = audio.muted ? 'Sin sonido' : 'Sonido'
+    muteButton.setAttribute('aria-pressed', String(audio.muted))
+  }
+  paintMute()
+  document.addEventListener('visibilitychange', () => audio.setActive(!document.hidden))
+
+  const say = (text: string, sound?: Sfx) => {
+    toast.textContent = text
+    toast.classList.add('is-visible')
+    clearTimeout(toastTimer)
+    toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 3000)
+    if (sound) audio.play(sound)
+  }
+
+  const setPaused = (paused: boolean) => {
+    root.classList.toggle('is-paused', paused)
+    root.classList.toggle('is-playing', !paused)
+    factory?.setPaused(paused)
+  }
+  const resume = () => {
+    setPaused(false)
+    factory?.play()
+  }
+  const setPlacing = (value: boolean) => {
+    placing = value
+    modeButton.textContent = value ? 'Poner' : 'Picar'
+    modeButton.setAttribute('aria-pressed', String(value))
+    factory?.setPlacing(value)
+  }
+
+  const closePanel = () => {
+    panel.hidden = true
+    root.classList.remove('has-panel')
+    panelVideo.pause()
+    panelVideo.removeAttribute('src')
+    // En táctil se sigue jugando; con ratón hay que volver a capturarlo con un clic
+    if (touch) setPaused(false)
+  }
+
+  const openPanel = (day: number) => {
+    const data = byDay.get(day)!
+    $<HTMLImageElement>('[data-panel-image]').src = `/2026/chocolates/${day}.webp`
+    $('[data-panel-eyebrow]').textContent = `Casilla ${day} · ${day} de diciembre`
+    $('[data-panel-title]').textContent = `¡Fase ${day} superada! ${starsOf(day)}`
+    $('[data-panel-chocolate]').textContent =
+      `La figura n.º ${day} del calendario: búscala detrás de esta misma puerta en tu caja.`
+    const prize = $('[data-panel-prize]')
+    prize.classList.toggle('is-prize', !!data.prize)
+    prize.textContent = data.prize ?? 'Registra tu calendario y entra en la casilla para ver qué se sortea.'
+    if (data.prize) prize.append(Object.assign(document.createElement('small'), { textContent: PRIZE_NOTE }))
+    panelVideo.hidden = !data.video
+    if (data.video) {
+      panelVideo.src = `https://videos.bigibai.com/premios/${data.video}.mp4`
+      void panelVideo.play().catch(() => {})
+    }
+    const cta = $<HTMLAnchorElement>('[data-panel-cta]')
+    cta.href = `/casilla-${day}-diciembre`
+    cta.textContent = data.prize ? 'Ir a la casilla' : 'Ver la casilla y su premio'
+    panel.hidden = false
+    root.classList.add('has-panel')
+    setPaused(true)
+    factory?.release()
+  }
+
+  // Selector de mejora: no se cierra hasta gastar los puntos
+  let afterLevelUp: (() => void) | null = null
+  const offerLevelUp = (then: () => void) => {
+    if (!canLevel()) return then()
+    afterLevelUp = then
+    paintLevels()
+    levelup.hidden = false
+    root.classList.add('has-levelup')
+    setPaused(true)
+    factory?.release()
+    audio.play('secret')
+    levelup.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+  }
+  const raise = (id: StatId) => {
+    if (!canLevel() || levels[id] >= STAT_MAX) return
+    levels[id]++
+    saveJson(LEVELS_KEY, levels)
+    factory?.setStats(levels)
+    paintLevels()
+    say(`${STAT_NAMES[id]} nivel ${levels[id]}: ${STAT_EFFECTS[id](levels[id])}`, 'checkpoint')
+    if (canLevel()) return
+    levelup.hidden = true
+    root.classList.remove('has-levelup')
+    const then = afterLevelUp
+    afterLevelUp = null
+    then?.()
+  }
+  const onRelic = (index: number) => {
+    relics.add(index)
+    saveJson(RELICS_KEY, [...relics])
+    paintLevels()
+    say(`Reliquia ${relics.size}/${RELIC_COUNT}: ¡punto de nivel!`)
+    offerLevelUp(resume)
+  }
+
+  const onDoor = (day: number, state: DoorState) => {
+    if (state === 'locked') return say(`La casilla ${day} se abre el ${day} de diciembre`, 'locked')
+    if (state === 'opened' || state === 'done') return say('Cruza la puerta para entrar en la fase')
+    opened.add(day)
+    saveJson(OPENED_KEY, [...opened])
+    factory?.setState(day, 'opened')
+    paintDoors()
+    say(`Puerta ${day} abierta. Crúzala para entrar en la fase`, 'door')
+  }
+
+  const onSecret = (id: SecretId) => {
+    const isNew = !found.has(id)
+    found.add(id)
+    saveJson(SECRETS_KEY, [...found])
+    paint()
+    say(isNew ? `Secreto: ${SECRETS[id]}` : SECRETS[id], isNew ? 'secret' : undefined)
+  }
+
+  const onInventory = (items: HotbarItem[], selected: number) => {
+    hotbar.replaceChildren(
+      ...items.map((item) => {
+        const li = document.createElement('li')
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.dataset.block = String(item.type)
+        button.setAttribute('aria-pressed', String(item.type === selected))
+        button.setAttribute('aria-label', `${item.name}, ${item.count}`)
+        button.title = item.name
+        button.style.setProperty('--block', `url(${item.icon})`)
+        button.append(
+          document.createElement('i'),
+          Object.assign(document.createElement('b'), { textContent: String(item.count) })
+        )
+        li.append(button)
+        return li
+      })
+    )
+  }
+
+  const onCoins = (count: number, total: number, picked: boolean) => {
+    $('[data-coins]').textContent = `${count}/${total}`
+    if (!picked) return
+    say(
+      count === total ? '¡Tienes todas las monedas de chocolate!' : `Moneda de chocolate ${count}/${total}`,
+      count === total ? 'secret' : 'coin'
+    )
+  }
+
+  // Fases
+  // Corazón de 9 x 9 píxeles: borde, relleno, brillo y sombra
+  const HEART = ['.KKK.KKK.', 'KRRRKRRRK', 'KRWRRRRRK', 'KRRRRRRRK', 'KRRRRRRDK', '.KRRRRDK.', '..KRRDK..', '...KDK...', '....K....']
+  const STAR = [
+    '.....K.....',
+    '....KYK....',
+    '....KYK....',
+    'KKKKYYYKKKK',
+    'KYWYYYYYYDK',
+    '.KYYYYYYDK.',
+    '..KYYYYDK..',
+    '..KYYYYDK..',
+    '.KYYKKKYDK.',
+    '.KYK...KDK.',
+    '.KK.....KK.',
+  ]
+  const pixelImage = (art: string[], colors: Record<string, string>) => {
+    const rects = art
+      .flatMap((row, y) =>
+        [...row].map((c, x) => (colors[c] ? `<rect x='${x}' y='${y}' width='1' height='1' fill='${colors[c]}'/>` : ''))
+      )
+      .join('')
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${art[0].length} ${art.length}' shape-rendering='crispEdges'>${rects}</svg>`
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+  }
+  const heartImage = (colors: Record<string, string>) => pixelImage(HEART, colors)
+  root.style.setProperty('--star', pixelImage(STAR, { K: '#000', Y: '#f8b132', W: '#fff3c4', D: '#c47a12' }))
+  root.style.setProperty('--star-empty', pixelImage(STAR, { K: '#000', Y: '#2b3a66', W: '#2b3a66', D: '#222e52' }))
+  root.style.setProperty('--heart', heartImage({ K: '#000', R: '#ff1313', W: '#ffc8c8', D: '#bb0d0d' }))
+  root.style.setProperty('--heart-empty', heartImage({ K: '#000', R: '#3a1418', W: '#3a1418', D: '#2a0e11' }))
+  root.style.setProperty('--heart-flash', heartImage({ K: '#fff', R: '#ff1313', W: '#ffc8c8', D: '#bb0d0d' }))
+  const SHIELD = ['KKKKKKKKK', 'KBBBBBBBK', 'KBWBBBBDK', 'KBWBBBBDK', 'KBBBBBBDK', '.KBBBBDK.', '..KBBDK..', '...KDK...', '....K....']
+  root.style.setProperty('--shield', pixelImage(SHIELD, { K: '#000', B: '#21c7b0', W: '#c9fff6', D: '#14806f' }))
+  root.style.setProperty('--shield-empty', pixelImage(SHIELD, { K: '#000', B: '#12332f', W: '#12332f', D: '#0c2421' }))
+  const heartsBox = $('[data-hearts]')
+  let maxHearts = 0
+  let lastHearts = 0
+  let lastShield: boolean | null | undefined
+  const paintHud = (hud: StageHud) => {
+    maxHearts = Math.max(maxHearts, hud.hearts)
+    heartsBox.classList.toggle('is-low', hud.hearts === 1 && maxHearts > 1)
+    if (hud.hearts !== lastHearts || hud.shield !== lastShield || !heartsBox.childElementCount) {
+      const icons = Array.from({ length: maxHearts }, (_, i) => {
+        const heart = document.createElement('i')
+        if (i >= hud.hearts) heart.className = i < lastHearts ? 'is-empty is-lost' : 'is-empty'
+        return heart
+      })
+      if (hud.shield !== null) {
+        const shield = document.createElement('i')
+        shield.className = hud.shield ? 'shield' : 'shield is-empty'
+        icons.push(shield)
+      }
+      heartsBox.replaceChildren(...icons)
+      lastHearts = hud.hearts
+      lastShield = hud.shield
+    }
+    const goal: string[] = []
+    if (hud.coins) goal.push(`Monedas ${hud.coins[0]}/${hud.coins[1]}`)
+    if (hud.bonus) goal.push(`Doradas ${hud.bonus[0]}/${hud.bonus[1]}`)
+    if (hud.time !== null) goal.push(`Tiempo ${hud.time}`)
+    if (hud.kills) goal.push(`Naves ${hud.kills[0]}/${hud.kills[1]}`)
+    if (hud.bombs !== null) goal.push(`Bombas ${hud.bombs}`)
+    $('[data-goal]').textContent = goal.join(' · ')
+    $('[data-boss]').hidden = !hud.boss
+    if (hud.boss) {
+      $('[data-boss-name]').textContent = hud.boss.name
+      $('[data-boss-fill]').style.width = `${(hud.boss.hp / hud.boss.max) * 100}%`
+    }
+  }
+  const showResult = (visible: boolean) => {
+    result.hidden = !visible
+    root.classList.toggle('has-result', visible)
+  }
+  // Cortinilla de píxeles: un iris tramado que se cierra y se abre a saltos
+  const iris = $<HTMLCanvasElement>('[data-iris]')
+  const irisCtx = iris.getContext('2d')!
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+  const IRIS_STEPS = 14
+  const IRIS_BAND = 4
+  let irisLevel = 0
+  let drawnIrisLevel = -1
+  let irisJob = 0
+  const drawIris = () => {
+    const cell = Math.max(12, Math.round(Math.max(root.clientWidth, root.clientHeight) / 48))
+    const cols = Math.ceil(root.clientWidth / cell)
+    const rows = Math.ceil(root.clientHeight / cell)
+    const resized = iris.width !== cols || iris.height !== rows
+    if (!resized && irisLevel === drawnIrisLevel) return
+    drawnIrisLevel = irisLevel
+    if (resized) {
+      iris.width = cols
+      iris.height = rows
+    }
+    irisCtx.clearRect(0, 0, cols, rows)
+    if (irisLevel <= 0) return
+    irisCtx.fillStyle = '#000'
+    if (irisLevel >= 1) return irisCtx.fillRect(0, 0, cols, rows)
+    const radius = (1 - irisLevel) * (Math.hypot(cols, rows) / 2 + IRIS_BAND)
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const dither = (BAYER[(y & 3) * 4 + (x & 3)] / 16) * IRIS_BAND
+        if (Math.hypot(x + 0.5 - cols / 2, y + 0.5 - rows / 2) + dither > radius) irisCtx.fillRect(x, y, 1, 1)
+      }
+    }
+  }
+  const moveIris = (to: number, ms: number) =>
+    new Promise<void>((resolve) => {
+      const job = ++irisJob
+      const from = irisLevel
+      if (reducedMotion || from === to) {
+        irisLevel = to
+        drawIris()
+        return resolve()
+      }
+      const start = performance.now()
+      const tick = (now: number) => {
+        if (job !== irisJob) return resolve()
+        const t = Math.min(1, Math.max(0, (now - start) / ms))
+        irisLevel = from + ((to - from) * Math.round(t * IRIS_STEPS)) / IRIS_STEPS
+        drawIris()
+        if (t < 1) requestAnimationFrame(tick)
+        else resolve()
+      }
+      requestAnimationFrame(tick)
+    })
+  let curtain = Promise.resolve()
+  const closeIris = () => {
+    audio.play('warp')
+    curtain = moveIris(1, 420)
+    return curtain
+  }
+  // Se abre cuando la escena nueva ya está pintada debajo
+  const openIris = () =>
+    curtain.then(() => requestAnimationFrame(() => requestAnimationFrame(() => moveIris(0, 480))))
+  const behindIris = (change: () => void) => {
+    closeIris().then(() => {
+      change()
+      openIris()
+    })
+  }
+  const saveStats = () => saveJson(STATS_KEY, stats)
+
+  const victory = $('.victory')
+  const VICTORY_MS = 6200
+  const fx = $<HTMLCanvasElement>('[data-victory-fx]')
+  const fxCtx = fx.getContext('2d')!
+  const FX_TICK = 1000 / 24
+  const CONFETTI = ['#f8b132', '#ffffff', '#c8323c', '#21c7b0']
+  type Piece = { x: number; y: number; vx: number; vy: number; size: number; color: string; life: number }
+  let pieces: Piece[] = []
+  let fxJob = 0
+  let fxTicks = 0
+  let confettiTimer = 0
+  const burst = (count: number, x: number, y: number, angle: number, spread: number, power: number) => {
+    for (let i = 0; i < count; i++) {
+      const a = ((angle + (Math.random() - 0.5) * spread) * Math.PI) / 180
+      const v = fx.height * power * (0.35 + Math.random() * 0.65)
+      pieces.push({
+        x: x * fx.width,
+        y: y * fx.height,
+        vx: Math.cos(a) * v,
+        vy: -Math.sin(a) * v,
+        size: 1 + Math.floor(Math.random() * 2),
+        color: CONFETTI[i % CONFETTI.length],
+        life: 70 + Math.random() * 50,
+      })
+    }
+  }
+  let fxImg: ImageData | null = null
+  let fxBuf32: Uint32Array | null = null
+  let fxAngles: Float32Array | null = null
+  let fxVisible: Uint8Array | null = null
+  const FX_RAY_COLOR = (80 << 24) | (50 << 16) | (177 << 8) | 248
+  const drawFx = () => {
+    const cell = Math.max(4, Math.round(Math.max(root.clientWidth, root.clientHeight) / 200))
+    const cols = Math.ceil(root.clientWidth / cell)
+    const rows = Math.ceil(root.clientHeight / cell)
+    if (fx.width !== cols || fx.height !== rows || !fxImg) {
+      fx.width = cols
+      fx.height = rows
+      fxImg = fxCtx.createImageData(cols, rows)
+      fxBuf32 = new Uint32Array(fxImg.data.buffer)
+      fxAngles = new Float32Array(cols * rows)
+      fxVisible = new Uint8Array(cols * rows)
+      const reach = Math.hypot(cols, rows) / 2
+      for (let y = 0; y < rows; y++) {
+        const dy = y + 0.5 - rows / 2
+        const yOff = y * cols
+        const by = (y & 3) * 4
+        for (let x = 0; x < cols; x++) {
+          const dx = x + 0.5 - cols / 2
+          const idx = yOff + x
+          if (1 - (0.8 * Math.hypot(dx, dy)) / reach > (BAYER[by + (x & 3)] + 0.5) / 16) {
+            fxVisible[idx] = 1
+            fxAngles[idx] = (Math.atan2(dy, dx) / Math.PI) * 18
+          }
+        }
+      }
+    }
+    fxBuf32!.fill(0)
+    const turn = Math.floor(fxTicks / 3) * (18 / 60)
+    const total = cols * rows
+    for (let i = 0; i < total; i++) {
+      if (fxVisible![i] && !(Math.floor(fxAngles![i] - turn) & 1)) fxBuf32![i] = FX_RAY_COLOR
+    }
+    fxCtx.putImageData(fxImg, 0, 0)
+    let write = 0
+    for (let i = 0; i < pieces.length; i++) {
+      const piece = pieces[i]
+      if (piece.life <= 0 || piece.y >= rows) continue
+      pieces[write++] = piece
+      piece.vx *= 0.9
+      piece.vy *= 0.9
+      piece.x += piece.vx
+      piece.y += piece.vy + rows * 0.007
+      piece.life--
+      if (piece.life < 12 && fxTicks & 1) continue
+      const flip = ((fxTicks + i) >> 2) & 1
+      fxCtx.fillStyle = piece.color
+      fxCtx.fillRect(Math.round(piece.x), Math.round(piece.y), flip ? piece.size : 1, piece.size)
+    }
+    pieces.length = write
+  }
+  const showVictory = (visible: boolean) => {
+    victory.hidden = !visible
+    root.classList.toggle('has-victory', visible)
+    if (visible) return
+    fxJob++
+    pieces = []
+    clearInterval(confettiTimer)
+  }
+  const celebrate = (day: number, stars: number, seconds: number, record: boolean) => {
+    $('[data-victory-day]').textContent = `Fase ${day} superada`
+    const prize = byDay.get(day)?.prize
+    $('[data-victory-prize]').textContent = prize ? `Se sortea: ${prize}` : ''
+    $('[data-victory-time]').textContent = `Tiempo: ${seconds} s${record ? ' · ¡Nuevo récord!' : ''}`
+    victory.querySelectorAll('i').forEach((star, i) => star.classList.toggle('is-on', i < stars))
+    showVictory(true)
+    audio.fanfare()
+    pieces = []
+    fxTicks = 0
+    drawFx()
+    if (reducedMotion) return
+    const job = ++fxJob
+    let last = 0
+    const frame = (now: number) => {
+      if (job !== fxJob) return
+      if (now - last >= FX_TICK) {
+        last = now
+        fxTicks++
+        drawFx()
+      }
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+    burst(180, 0.5, 0.6, 90, 130, 0.09)
+    let shots = 0
+    clearInterval(confettiTimer)
+    confettiTimer = window.setInterval(() => {
+      burst(45, 0, 0.8, 60, 70, 0.11)
+      burst(45, 1, 0.8, 120, 70, 0.11)
+      if (++shots >= 13) clearInterval(confettiTimer)
+    }, 400)
+  }
+
+  const onStage = (event: StageEvent) => {
+    if (event.type === 'warp') {
+      closeIris()
+    } else if (event.type === 'enter') {
+      stageDay = event.day
+      stageStart = performance.now()
+      maxHearts = 0
+      lastHearts = 0
+      lastShield = undefined
+      const entry = (stats[event.day] ??= { tries: 0, wins: 0, best: 0 })
+      entry.tries++
+      saveStats()
+      showResult(false)
+      root.classList.add('in-stage')
+      root.classList.toggle('is-flying', event.kind === 'ships')
+      openIris()
+      audio.setTrack(event.boss ? 'boss' : 'stage', event.day)
+      specialButton.textContent = event.weapon === 'ship' ? 'Bomba' : event.weapon === 'snow' ? 'Bola XL' : 'Giro'
+      $('[data-card-day]').textContent = `Casilla ${event.day}`
+      $('[data-card-title]').textContent = event.title
+      $('[data-card-intro]').textContent = event.intro
+      card.classList.add('is-visible')
+      clearTimeout(cardTimer)
+      cardTimer = window.setTimeout(() => card.classList.remove('is-visible'), 4200)
+    } else if (event.type === 'hud') paintHud(event.hud)
+    else if (event.type === 'say') say(event.text)
+    else if (event.type === 'hurt') {
+      hurt.classList.remove('is-on')
+      void hurt.offsetWidth
+      hurt.classList.add('is-on')
+    } else if (event.type === 'lose') {
+      audio.play('lose')
+      showResult(true)
+    } else if (event.type === 'win') {
+      const { day } = event
+      const seconds = Math.round((performance.now() - stageStart) / 1000)
+      const entry = (stats[day] ??= { tries: 1, wins: 0, best: 0 })
+      const record = entry.wins > 0 && seconds < entry.best
+      entry.wins++
+      entry.best = entry.best ? Math.min(entry.best, seconds) : seconds
+      entry.stars = Math.max(entry.stars ?? 0, event.stars)
+      saveStats()
+      done.add(day)
+      saveJson(DONE_KEY, [...done])
+      paint()
+      paintLevels()
+      celebrate(day, event.stars, seconds, record)
+      window.setTimeout(() => {
+        behindIris(() => {
+          showVictory(false)
+          factory?.leaveStage()
+          factory?.setState(day, 'done')
+          offerLevelUp(() => openPanel(day))
+        })
+      }, VICTORY_MS)
+    } else if (event.type === 'special') {
+      specialButton.classList.add('is-cooling')
+      window.setTimeout(() => specialButton.classList.remove('is-cooling'), 2500)
+    } else if (event.type === 'exit') {
+      stageDay = 0
+      root.classList.remove('in-stage', 'is-flying')
+      card.classList.remove('is-visible')
+      audio.setTrack('hub')
+    }
+  }
+
+  paint()
+  paintLevels()
+
+  root.addEventListener('click', (event) => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>('button')
+    if (!target) return
+    const data = target.dataset
+    audio.start()
+    audio.play('click')
+    if (data.block) {
+      factory?.pick(Number(data.block))
+      if (touch) setPlacing(true)
+    } else if ('play' in data) {
+      resume()
+      // Solo en desarrollo: ?fase=N entra directamente en una fase, una sola vez
+      const params = new URLSearchParams(location.search)
+      const test = Number(params.get('fase'))
+      if (import.meta.env.DEV && test && !stageDay) {
+        factory?.warpTo(test)
+        params.delete('fase')
+        history.replaceState(null, '', `${location.pathname}${params.size ? `?${params}` : ''}`)
+      }
+    } else if (data.door) {
+      if (stageDay) return
+      const day = Number(data.door)
+      resume()
+      behindIris(() => factory?.goToDoor(day))
+    } else if (data.stat) raise(data.stat as StatId)
+    else if ('levelup' in data) offerLevelUp(() => {})
+    else if ('mode' in data) setPlacing(!placing)
+    else if ('special' in data) factory?.special()
+    else if ('mute' in data) {
+      audio.setMuted(!audio.muted)
+      saveJson(SOUND_KEY, audio.muted ? 'off' : 'on')
+      paintMute()
+    } else if ('close' in data) closePanel()
+    else if ('help' in data) setPaused(true)
+    else if ('retry' in data) {
+      showResult(false)
+      factory?.retryStage()
+      resume()
+    } else if ('leave' in data) {
+      showResult(false)
+      behindIris(() => {
+        factory?.leaveStage()
+        if (touch) setPaused(false)
+      })
+    } else if ('reset' in data) {
+      const sure = confirm(
+        '¿Reiniciar el mundo? Se pierden tus bloques, monedas y posición. Las fases superadas y tus niveles se conservan.'
+      )
+      if (!sure) return
+      factory?.wipe()
+      location.reload()
+    }
+  })
+  root.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !panel.hidden) closePanel()
+  })
+
+  const viewButton = $('[data-view]')
+  viewButton.addEventListener('click', () => factory?.cycleView())
+
+  const jumpButton = $('[data-jump]')
+  for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'pointerleave']) {
+    jumpButton.addEventListener(type, () => factory?.jump(type === 'pointerdown'))
+  }
+
+  // Sin teclado no hay código secreto: cinco toques al marcador encienden la fiesta
+  let titleTaps = 0
+  $('.stats').addEventListener('click', () => {
+    if (++titleTaps % 5 === 0) factory?.trigger('disco')
+  })
+
+  const hour = Number(new URLSearchParams(location.search).get('hora') ?? NaN)
+
+  const boot = async () => {
+    try {
+      const { createFactory } = await import('@/factory/engine')
+      factory = await createFactory({
+        stage: root,
+        canvas: $<HTMLCanvasElement>('.factory-canvas'),
+        states: Object.fromEntries(days.map(({ day }) => [day, stateOf(day)])),
+        reducedMotion,
+        hour: hour >= 0 && hour <= 24 ? hour : undefined,
+        stats: levels,
+        relics: [...relics],
+        onRelic,
+        onDoor,
+        onSecret,
+        onInventory,
+        onCoins,
+        onStage,
+        onLock: (locked) => {
+          if (touch) return
+          if (!locked) $('[data-start-title]').textContent = 'Pausa'
+          setPaused(!locked)
+        },
+        onSound: (name) => audio.play(name),
+        onView: (view) => {
+          viewButton.setAttribute('aria-pressed', String(view > 0))
+          root.classList.toggle('is-selfie', view === 2)
+        },
+        onStick: (x, y, dx, dy, active) => {
+          stick.classList.toggle('is-active', active)
+          if (!active) return
+          const rect = root.getBoundingClientRect()
+          stick.style.translate = `${x - rect.left}px ${y - rect.top}px`
+          ;(stick.firstElementChild as HTMLElement).style.translate = `${dx}px ${dy}px`
+        },
+      })
+      root.classList.add('is-ready')
+      if (import.meta.env.DEV) Object.assign(window, { factory, audio, celebrate })
+    } catch (error) {
+      console.error(error)
+      root.classList.add('no-webgl')
+      $('.factory-loading').textContent =
+        'Tu dispositivo no puede mostrar la fábrica en 3D. Abre las casillas desde el calendario de la portada.'
+    }
+  }
+  boot()
+</script>

@@ -20,10 +20,12 @@
     "astro": "7.4.0",
     "canvas-confetti": "1.9.4",
     "tailwindcss": "4.3.3",
+    "three": "^0.187.0",
     "tippy.js": "6.3.7"
   },
   "devDependencies": {
     "@types/canvas-confetti": "1.9.0",
+    "@types/three": "^0.187.0",
     "typescript": "7.0.2",
     "wrangler": "4.151.1"
   }

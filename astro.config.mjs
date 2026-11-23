@@ -13,6 +13,7 @@ import { CAMPAIGN } from './src/data/campaign.ts'
 // https://astro.build/config
 export default defineConfig({
   site: 'https://www.bigibai.com',
+  devToolbar: { enabled: false },
   // 'compile': imágenes optimizadas en build, sin binding de Cloudflare Images
   adapter: cloudflare({ imageService: 'compile' }),
   // No usamos Astro.session: evita que el adapter cree un KV para sesiones
