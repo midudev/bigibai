@@ -5,6 +5,7 @@ import type { User } from '@supabase/supabase-js'
 interface ImportMetaEnv {
   readonly SUPABASE_URL: string
   readonly SUPABASE_ANON_KEY: string
+  readonly PUBLIC_FACTORY_WS_URL?: string
 }
 
 interface ImportMeta {

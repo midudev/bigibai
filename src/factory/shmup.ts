@@ -1,5 +1,4 @@
-import { AdditiveBlending, CanvasTexture, Color, InstancedMesh, Matrix4, Mesh, Quaternion, Sprite, SpriteMaterial, Vector3 } from 'three'
-import type { BufferGeometry } from 'three'
+import { AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, InstancedMesh, Matrix4, Mesh, Points, Quaternion, ShaderMaterial, Sprite, SpriteMaterial, Vector3 } from 'three'
 import type { StageCtx } from './actors'
 import { FIELD, type StageDef } from './stages'
 import { DAMAGE } from './stats'
@@ -417,25 +416,53 @@ export function createShmup(ctx: StageCtx, def: StageDef) {
     ctx.scene.add(sprite)
     return sprite
   })
-  const stars = instanced(models.bit, STARS)
-  stars.count = STARS
-  const star = Array.from({ length: STARS }, (_, i) => {
+  // Estrellas animadas en GPU: 0 matrices en CPU, 0 subidas por frame y 220 puntos en vez de 2.640 triángulos
+  const starGeo = new BufferGeometry()
+  const starPos = new Float32Array(STARS * 3)
+  const starCol = new Float32Array(STARS * 3)
+  const starMeta = new Float32Array(STARS * 2)
+  for (let i = 0; i < STARS; i++) {
     const depth = 3 + rand() * 28
-    stars.setColorAt(i, color.set([0xffffff, 0xbfd4ff, 0xffc8ec][i % 3]).multiplyScalar(0.35 + rand() * 0.65))
-    return { x: (rand() - 0.5) * 120, z: (rand() - 0.5) * 90, depth, size: 0.2 + rand() * 0.35 }
+    starPos.set([wx((rand() - 0.5) * 120), Y - depth, (rand() - 0.5) * 90], i * 3)
+    color.set([0xffffff, 0xbfd4ff, 0xffc8ec][i % 3]).multiplyScalar(0.35 + rand() * 0.65)
+    starCol.set([color.r, color.g, color.b], i * 3)
+    starMeta.set([26 / (1 + depth * 0.18), 0.2 + rand() * 0.35], i * 2)
+  }
+  starGeo.setAttribute('position', new BufferAttribute(starPos, 3))
+  starGeo.setAttribute('color', new BufferAttribute(starCol, 3))
+  starGeo.setAttribute('aMeta', new BufferAttribute(starMeta, 2))
+  const starMat = new ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uCenterZ: { value: FIELD.z } },
+    depthWrite: false,
+    vertexShader: `
+      attribute vec3 color;
+      attribute vec2 aMeta;
+      uniform float uTime;
+      uniform float uCenterZ;
+      varying vec3 vCol;
+      void main() {
+        vCol = color;
+        float z = mod(position.z + uTime * aMeta.x + 45.0, 90.0) - 45.0 + uCenterZ;
+        vec4 mv = modelViewMatrix * vec4(position.x, position.y, z, 1.0);
+        gl_PointSize = max(1.5, (aMeta.y * 360.0) / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying vec3 vCol;
+      void main() {
+        gl_FragColor = vec4(vCol, 1.0);
+        #include <colorspace_fragment>
+      }`,
   })
+  const starPoints = new Points(starGeo, starMat)
+  starPoints.frustumCulled = false
+  ctx.scene.add(starPoints)
   const updateSpace = (dt: number) => {
     for (const sprite of nebulae) {
       sprite.position.z += dt * 1.6
       if (sprite.position.z > wz(80)) sprite.position.z -= 162
     }
-    for (let i = 0; i < STARS; i++) {
-      const item = star[i]
-      item.z += (dt * 26) / (1 + item.depth * 0.18)
-      if (item.z > 45) item.z -= 90
-      stars.setMatrixAt(i, m4.makeScale(item.size, item.size, item.size * 2.2).setPosition(wx(item.x), Y - item.depth, wz(item.z)))
-    }
-    stars.instanceMatrix.needsUpdate = true
+    starMat.uniforms.uTime.value = time
   }
 
   // Destellos de las explosiones
@@ -1411,6 +1438,9 @@ export function createShmup(ctx: StageCtx, def: StageDef) {
         ctx.scene.remove(sprite)
         sprite.material.dispose()
       }
+      ctx.scene.remove(starPoints)
+      starGeo.dispose()
+      starMat.dispose()
       hazeTex.dispose()
       const { icons, ...rest } = models
       for (const geo of [...Object.values(rest), ...Object.values(icons)]) geo.dispose()

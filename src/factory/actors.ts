@@ -937,18 +937,26 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
   const updateCoins = () => {
     if (!coins) return
     q.setFromAxisAngle(up, time * 2.4)
-    def.coins.forEach((c, i) => {
-      if (coinLeft[i] && Math.hypot(c[0] - pos.x, c[1] - pos.y - 0.9, c[2] - pos.z) < 1.3) {
+    let n = 0
+    for (let i = 0; i < def.coins.length; i++) {
+      if (!coinLeft[i]) continue
+      const c = def.coins[i]
+      const dx = c[0] - pos.x
+      const dy = c[1] - pos.y - 0.9
+      const dz = c[2] - pos.z
+      if (dx * dx + dy * dy + dz * dz < 1.69) {
         coinLeft[i] = false
         const left = coinLeft.filter(Boolean).length
         ctx.sound('coin')
         ctx.burst(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5, 0xf8b132, 12)
         ctx.hud({ coins: [def.coins.length - left, def.coins.length] })
         if (!left) finish()
+        continue
       }
-      coins.setMatrixAt(i, coinLeft[i] ? m4.compose(p.set(c[0], c[1] + Math.sin(time * 2 + i) * 0.12, c[2]), q, s.set(1.4, 1.4, 1.4)) : hide)
-    })
-    coins.instanceMatrix.needsUpdate = true
+      coins.setMatrixAt(n++, m4.compose(p.set(c[0], c[1] + Math.sin(time * 2 + i) * 0.12, c[2]), q, s.set(1.4, 1.4, 1.4)))
+    }
+    coins.count = n
+    if (n > 0) coins.instanceMatrix.needsUpdate = true
   }
 
   // Meta y puntos de control de las fases de plataformas
@@ -1073,15 +1081,22 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
   const inside = (t: { x: number; z: number; w: number; d: number }, margin: number) =>
     Math.abs(pos.x - t.x) < t.w / 2 + margin && Math.abs(pos.z - t.z) < t.d / 2 + margin
   const updateTraps = () => {
-    jets.forEach((t, i) => {
-      const at = (time * hard + t.phase) % (JET.off + JET.warn + JET.on)
-      const lit = at - JET.off - JET.warn
-      const tall = lit > 0 ? t.h * Math.min(1, lit * 8) : at > JET.off ? 0.6 + Math.sin(time * 40 + i) * 0.25 : 0
-      const flick = 0.9 + Math.sin(time * 33 + i * 2) * 0.1
-      flames!.setMatrixAt(i, tall ? m4.compose(p.set(t.x, t.y, t.z), q.identity(), s.set(t.w * flick, tall, t.d * flick)) : hide)
-      if (lit > 0 && !ended && inside(t, 0.1) && pos.y + 1.8 > t.y && pos.y < t.y + t.h) ctx.hurt(0, 0)
-    })
-    if (flames) flames.instanceMatrix.needsUpdate = true
+    if (flames) {
+      let fn = 0
+      for (let i = 0; i < jets.length; i++) {
+        const t = jets[i]
+        const at = (time * hard + t.phase) % (JET.off + JET.warn + JET.on)
+        const lit = at - JET.off - JET.warn
+        const tall = lit > 0 ? t.h * Math.min(1, lit * 8) : at > JET.off ? 0.6 + Math.sin(time * 40 + i) * 0.25 : 0
+        if (tall) {
+          const flick = 0.9 + Math.sin(time * 33 + i * 2) * 0.1
+          flames.setMatrixAt(fn++, m4.compose(p.set(t.x, t.y, t.z), q.identity(), s.set(t.w * flick, tall, t.d * flick)))
+        }
+        if (lit > 0 && !ended && inside(t, 0.1) && pos.y + 1.8 > t.y && pos.y < t.y + t.h) ctx.hurt(0, 0)
+      }
+      flames.count = fn
+      if (fn > 0) flames.instanceMatrix.needsUpdate = true
+    }
     presses.forEach((t, i) => {
       const at = (time * hard + t.phase) % (PRESS.up + PRESS.warn + PRESS.fall + PRESS.down + PRESS.rise)
       const fall = at - PRESS.up - PRESS.warn
@@ -1189,17 +1204,25 @@ function createGround(ctx: StageCtx, def: StageDef, models: Models) {
   const updateBonus = () => {
     if (!bonus) return
     q.setFromAxisAngle(up, -time * 3)
-    def.bonus.forEach((c, i) => {
-      if (bonusLeft[i] && Math.hypot(c[0] - pos.x, c[1] - pos.y - 0.9, c[2] - pos.z) < 1.3) {
+    let n = 0
+    for (let i = 0; i < def.bonus.length; i++) {
+      if (!bonusLeft[i]) continue
+      const c = def.bonus[i]
+      const dx = c[0] - pos.x
+      const dy = c[1] - pos.y - 0.9
+      const dz = c[2] - pos.z
+      if (dx * dx + dy * dy + dz * dz < 1.69) {
         bonusLeft[i] = false
         ctx.sound('coin')
         ctx.burst(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5, 0xffe08a, 16)
         ctx.hud({ bonus: [bonusLeft.filter((left) => !left).length, def.bonus.length] })
         ctx.say(bonusLeft.some(Boolean) ? 'Chocolatina dorada' : '¡Todas las chocolatinas doradas!')
+        continue
       }
-      bonus.setMatrixAt(i, bonusLeft[i] ? m4.compose(p.set(c[0], c[1] + Math.sin(time * 3 + i) * 0.15, c[2]), q, s.set(2, 2, 2)) : hide)
-    })
-    bonus.instanceMatrix.needsUpdate = true
+      bonus.setMatrixAt(n++, m4.compose(p.set(c[0], c[1] + Math.sin(time * 3 + i) * 0.15, c[2]), q, s.set(2, 2, 2)))
+    }
+    bonus.count = n
+    if (n > 0) bonus.instanceMatrix.needsUpdate = true
   }
 
   // Regalos que suelta el avión en los combates: un corazón o unos segundos de golpes dorados

@@ -9,6 +9,8 @@
     "preview": "astro preview",
     "astro": "astro",
     "deploy": "astro build && wrangler deploy",
+    "dev:hub": "wrangler dev --config workers/factory-hub/wrangler.jsonc --port 8787",
+    "deploy:hub": "wrangler deploy --config workers/factory-hub/wrangler.jsonc",
     "stores": "bun scripts/stores.ts"
   },
   "dependencies": {

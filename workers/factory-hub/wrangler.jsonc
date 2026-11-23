@@ -1,0 +1,34 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "bigibai-factory-hub",
+  // Cuenta dueña de la zona bigibai.com (Adrian Satue)
+  "account_id": "8817a7505a3fb59b2a44ab4b00edede0",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-12",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    { "pattern": "www.bigibai.com/factory-hub/*", "zone_name": "bigibai.com" },
+    { "pattern": "bigibai.com/factory-hub/*", "zone_name": "bigibai.com" }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://www.bigibai.com,https://bigibai.com"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FACTORY_ROOM",
+        "class_name": "FactoryRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FactoryRoom"]
+    }
+  ]
+}

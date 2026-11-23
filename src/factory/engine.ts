@@ -1,4 +1,5 @@
 import {
+  ACESFilmicToneMapping,
   AdditiveBlending,
   BackSide,
   BatchedMesh,
@@ -35,6 +36,8 @@ import {
   SRGBColorSpace,
   Scene,
   ShaderMaterial,
+  Sprite,
+  SpriteMaterial,
   Vector3,
   WebGLRenderer,
   WebGLRenderTarget,
@@ -45,6 +48,8 @@ import { mulberry32 } from './voxels'
 import { DAMAGE, SPEED_STEP, STRENGTH_STEP, shieldTime, type PlayerStats } from './stats'
 import { FIELD, buildStage, type StageDef, type StageKind, type Weapon } from './stages'
 import { buildModels, createStage, disposeModels, type StageCtx, type StageHud, type StageRuntime, type StageSound } from './actors'
+import { createPeersRenderer } from './peers'
+import type { EmoteId, LocalPose, RemotePeer } from './multiplayer'
 
 export type DoorState = 'locked' | 'unlocked' | 'today' | 'opened' | 'done'
 export type SecretId = 'plane' | 'vat' | 'ibai' | 'crown' | 'dragon' | 'disco'
@@ -408,34 +413,54 @@ export async function createFactory(opts: FactoryOptions) {
     new Promise((resolve) => setTimeout(resolve, 1500)),
   ])
 
-  const maxDpr = Math.min(window.devicePixelRatio || 1, 2)
+  const isMobile =
+    matchMedia('(pointer: coarse), (hover: none)').matches ||
+    (navigator.maxTouchPoints > 0 && Math.min(window.screen.width, window.screen.height) <= 920)
+  const lowEnd =
+    isMobile &&
+    ((navigator.hardwareConcurrency || 4) <= 4 ||
+      ((navigator as { deviceMemory?: number }).deviceMemory ?? 4) <= 4)
+  const maxDpr = Math.min(window.devicePixelRatio || 1, isMobile ? (lowEnd ? 1.25 : 1.5) : 2)
   let dpr = maxDpr
   const renderer = new WebGLRenderer({
     canvas,
-    antialias: maxDpr < 2,
+    antialias: !isMobile && maxDpr < 2,
     alpha: false,
     stencil: false,
     powerPreference: 'high-performance',
   })
   renderer.setPixelRatio(dpr)
+  renderer.toneMapping = ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.14
 
   const scene = new Scene()
   scene.matrixAutoUpdate = false
-  const fog = new Fog(0x06143a, HUB_FOG[0], HUB_FOG[1])
+  const hubFog = isMobile ? [52, 150] : HUB_FOG
+  const fog = new Fog(0x06143a, hubFog[0], hubFog[1])
   scene.fog = fog
-  const camera = new PerspectiveCamera(70, 1, 0.08, 260)
+  const camera = new PerspectiveCamera(70, 1, 0.08, isMobile ? 200 : 260)
   camera.rotation.order = 'YXZ'
   scene.add(camera)
 
+  const aniso = Math.min(isMobile ? 2 : 4, renderer.capabilities.getMaxAnisotropy())
   const { canvas: blockCanvas, arrayTex: blockArrayTex } = blockAtlas()
+  blockArrayTex.anisotropy = aniso
   const propTex = pixelTexture(16, (_x, _y, rand) => 0.86 + rand() * 0.14)
+  propTex.anisotropy = aniso
   const stripes = pixelTexture(8, (_x, y, rand) => (y < 4 ? 0.72 : 0.95) + rand() * 0.05)
   // Cuarto canal del color de vértice: 0-1 es la luz de farolas que recibe, 2 brilla con luz propia.
   // aOcc: oclusión ambiental y sombra horneada; los modelos no lo llevan y valen 0
   const ambient = { value: new Color(1, 1, 1) }
+  const lampBase = new Color(0, 0, 0)
   const lamp = { value: new Color(0, 0, 0) }
-  const shadowSize = matchMedia('(pointer: coarse)').matches ? 1024 : 2048
-  const shadowTarget = new WebGLRenderTarget(shadowSize, shadowSize)
+  const shadowSize = isMobile ? (lowEnd ? 512 : 768) : 2048
+  // RedFormat (R8, 1 byte/px en vez de RGBA8 4 bytes/px) y sin mipmaps: ahorra 12 MB de VRAM
+  const shadowTarget = new WebGLRenderTarget(shadowSize, shadowSize, {
+    format: RedFormat,
+    generateMipmaps: false,
+    depthBuffer: true,
+    stencilBuffer: false,
+  })
   shadowTarget.depthTexture = new DepthTexture(shadowSize, shadowSize)
   shadowTarget.depthTexture.compareFunction = LessEqualCompare
   shadowTarget.depthTexture.magFilter = shadowTarget.depthTexture.minFilter = LinearFilter
@@ -453,13 +478,13 @@ export async function createFactory(opts: FactoryOptions) {
   }
   // Los modelos y el terreno leen la luz de farolas del volumen 3D (uLightVol).
   // El terreno usa sampler2DArray para repetir texturas sobre quads fusionados (greedy meshing)
-  const lit = (material: MeshBasicMaterial, flash?: { value: number }, model = false) => {
+  const lit = (material: MeshBasicMaterial, flash?: { value: number }, model = false, foreground = false) => {
     material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, light)
       if (flash) shader.uniforms.uFlash = flash
       shader.vertexShader =
         `attribute vec2 aOcc;
-        ${model ? '' : 'attribute float aTile;\nvarying float vTile;\nvarying vec2 vBlockUv;\n'}uniform mat4 uShadowMatrix;
+        ${model ? '' : 'attribute float aTile;\nuniform vec3 uSky;\nuniform vec3 uGround;\nuniform vec3 uSunDir;\nvarying float vTile;\nvarying vec2 vBlockUv;\nvarying vec3 vSky;\nvarying float vNdl;\n'}uniform mat4 uShadowMatrix;
         varying vec2 vOcc;
         varying vec3 vWorld;
         varying vec3 vNormalW;
@@ -482,75 +507,154 @@ export async function createFactory(opts: FactoryOptions) {
           #endif
           vWorld = (modelMatrix * wp).xyz;
           vNormalW = mat3(modelMatrix) * wn;
-          vShadowCoord = (uShadowMatrix * vec4(vWorld + ${model ? 'normalize(vNormalW)' : 'vNormalW'} * 0.05, 1.0)).xyz;`
+          ${
+            model
+              ? ''
+              : `vSky = mix(uGround, uSky, 0.5 + 0.5 * vNormalW.y) * dot(vNormalW * vNormalW, vec3(0.8, 1.0, 0.92));
+          vNdl = max(dot(vNormalW, uSunDir), 0.0);`
+          }
+          vShadowCoord = (uShadowMatrix * vec4(vWorld + ${model ? 'normalize(vNormalW)' : 'vNormalW'} * 0.05, 1.0)).xyz;${
+            foreground ? '\ngl_Position.z = gl_Position.z * 0.02 - 0.98 * gl_Position.w;' : ''
+          }`
         )
       shader.fragmentShader =
-        `uniform vec3 uSky;
-        uniform vec3 uGround;
-        uniform vec3 uSun;
+        `${model ? 'uniform vec3 uSky;\nuniform vec3 uGround;\n' : 'uniform mediump sampler2DArray uBlockAtlas;\nvarying float vTile;\nvarying vec2 vBlockUv;\nvarying vec3 vSky;\nvarying float vNdl;\n'}uniform vec3 uSun;
         uniform vec3 uSunDir;
         uniform vec3 uLamp;
         uniform float uFlash;
         uniform sampler2DShadow uShadowMap;
         uniform float uShadowOn;
         uniform highp sampler3D uLightVol;
-        ${model ? '' : 'uniform mediump sampler2DArray uBlockAtlas;\nvarying float vTile;\nvarying vec2 vBlockUv;'}
         varying vec2 vOcc;
         varying vec3 vWorld;
         varying vec3 vNormalW;
         varying vec3 vShadowCoord;
+        // Ruido de gradiente intercalado para rotar las 4 muestras PCF y suavizar los bordes de sombra sin coste extra
+        float ign(vec2 p) {
+          return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+        }
         float sunVisibility() {
           float baked = 1.0 - vOcc.y;
           if (uShadowOn < 0.5) return baked;
           vec3 c = vShadowCoord;
           float edge = max(abs(c.x - 0.5), abs(c.y - 0.5)) * 2.0;
           if (edge >= 1.0 || c.z >= 1.0) return baked;
-          vec2 t = vec2(${(1 / shadowSize).toFixed(8)});
-          float s = texture(uShadowMap, vec3(c.xy + vec2(-0.75, -0.25) * t, c.z));
-          s += texture(uShadowMap, vec3(c.xy + vec2(0.25, -0.75) * t, c.z));
-          s += texture(uShadowMap, vec3(c.xy + vec2(0.75, 0.25) * t, c.z));
-          s += texture(uShadowMap, vec3(c.xy + vec2(-0.25, 0.75) * t, c.z));
-          return mix(s * 0.25, baked, smoothstep(0.8, 1.0, edge));
+          float a = ign(gl_FragCoord.xy) * 6.2831853;
+          float ca = cos(a);
+          float sa = sin(a);
+          mat2 rot = mat2(ca, -sa, sa, ca);
+          vec2 t = vec2(${(1.35 / shadowSize).toFixed(8)});
+          ${
+            isMobile
+              ? `float s = texture(uShadowMap, vec3(c.xy + (rot * vec2(-0.65, -0.35)) * t, c.z));
+          s += texture(uShadowMap, vec3(c.xy + (rot * vec2(0.65, 0.35)) * t, c.z));
+          return mix(s * 0.5, baked, smoothstep(0.8, 1.0, edge));`
+              : `float s = texture(uShadowMap, vec3(c.xy + (rot * vec2(-0.707, -0.35)) * t, c.z));
+          s += texture(uShadowMap, vec3(c.xy + (rot * vec2(0.35, -0.707)) * t, c.z));
+          s += texture(uShadowMap, vec3(c.xy + (rot * vec2(0.707, 0.35)) * t, c.z));
+          s += texture(uShadowMap, vec3(c.xy + (rot * vec2(-0.35, 0.707)) * t, c.z));
+          return mix(s * 0.25, baked, smoothstep(0.8, 1.0, edge));`
+          }
         }
         float lampLight(vec3 n, float baked) {
           vec3 p = vWorld + n * ${model ? '0.3' : '0.5'};
           float level = texture(uLightVol, vec3(p.x / ${W}.0, p.z / ${D}.0, p.y / ${H}.0)).r * ${255 / LIGHT_MAX};
-          return max(baked, pow(min(level, 1.0), 1.7));
+          float clamped = min(level, 1.0);
+          float vol = level > 0.001 ? ${isMobile ? 'clamped * clamped' : 'pow(clamped, 1.7)'} : 0.0;
+          return ${model ? 'max(baked, vol)' : 'vol'};
         }
         ` +
-        shader.fragmentShader.replace(
-          '#include <color_fragment>',
-          `#include <color_fragment>
+        shader.fragmentShader
+          .replace(
+            '#include <color_fragment>',
+            `#include <color_fragment>
+          vec3 viewDir = normalize(cameraPosition - vWorld);
           ${
             model
-              ? 'vec3 n = normalize(vNormalW);'
-              : `vec3 n = vNormalW;
-          diffuseColor *= texture(uBlockAtlas, vec3(vBlockUv, vTile));
-          if (vColor.a < 1.5) {
+              ? `if (vColor.a < 1.5) {
+            vec3 n = normalize(vNormalW);
+            float ao = 1.0 - vOcc.x;
+            vec3 sky = mix(uGround, uSky, 0.5 + 0.5 * n.y) * dot(n * n, vec3(0.8, 1.0, 0.92));
+            float ndl = max(dot(n, uSunDir), 0.0);
+            float vis = ndl > 0.0 ? sunVisibility() : 0.0;
+            float sun = ndl * vis * (0.5 + 0.5 * ao);
+            vec3 halfV = normalize(uSunDir + viewDir);
+            float spec = pow(max(dot(n, halfV), 0.0), 28.0) * 0.22 * vis * step(0.01, ndl);
+            float rimBase = 1.0 - max(dot(n, viewDir), 0.0);
+            float rim = rimBase * rimBase * rimBase * 0.14 * ao;
+            diffuseColor.rgb = diffuseColor.rgb * (sky * ao + uSun * sun + uLamp * lampLight(n, min(vColor.a, 1.0))) + uSun * spec + sky * rim;
+          } else {
+            diffuseColor.rgb *= 1.3;
+          }`
+              : `diffuseColor *= texture(uBlockAtlas, vec3(vBlockUv, vTile));
+          if (vColor.a < 0.5) {
+            vec3 n = vNormalW;
             ivec3 cell = ivec3(floor(vWorld - n * 0.01));
             uint h = uint(cell.x * 73856093) ^ uint(cell.y * 19349663) ^ uint(cell.z * 83492791);
             diffuseColor.rgb *= 0.95 + float(h & 15u) * 0.00625;
+            float ao = 1.0 - vOcc.x;
+            float vis = vNdl > 0.0 ? sunVisibility() : 0.0;
+            float sun = vNdl * vis * (0.5 + 0.5 * ao);
+            // Brillo especular según el tipo de bloque (acero, baldosa, tubería, chocolate, cristal)
+            int ti = int(vTile + 0.5);
+            float shiny = (ti == 14) ? 0.45 : (ti == 0 || ti == 1 || ti == 8) ? 0.22 : (ti == 4) ? 0.18 : 0.06;
+            float power = (ti == 14) ? 48.0 : (ti == 0 || ti == 1 || ti == 8) ? 26.0 : 16.0;
+            vec3 halfV = normalize(uSunDir + viewDir);
+            float spec = vis > 0.01 ? pow(max(dot(n, halfV), 0.0), power) * shiny * vis : 0.0;
+            float rimBase = 1.0 - max(dot(n, viewDir), 0.0);
+            float rim = rimBase * rimBase * rimBase * (ti == 14 ? 0.28 : 0.09) * ao;
+            diffuseColor.rgb = diffuseColor.rgb * (vSky * ao + uSun * sun + uLamp * lampLight(n, 0.0)) + uSun * spec + vSky * rim;
+          } else {
+            diffuseColor.rgb *= 1.35;
           }`
           }
-          float ao = 1.0 - vOcc.x;
-          vec3 sky = mix(uGround, uSky, 0.5 + 0.5 * n.y) * dot(n * n, vec3(0.8, 1.0, 0.92));
-          float ndl = max(dot(n, uSunDir), 0.0);
-          float sun = ndl > 0.0 ? ndl * sunVisibility() * (0.5 + 0.5 * ao) : 0.0;
-          vec3 light = sky * ao + uSun * sun + uLamp * lampLight(n, min(vColor.a, 1.0));
-          diffuseColor.rgb *= mix(light, vec3(1.0), step(1.5, vColor.a));
           diffuseColor.a = 1.0;` +
-            (flash ? '\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uFlash);' : '')
-        )
+              (flash ? '\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uFlash);' : '')
+          )
+          .replace(
+            '#include <fog_fragment>',
+            `#ifdef USE_FOG
+              float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
+              float sDot = max(dot(-viewDir, uSunDir), 0.0);
+              float sDot2 = sDot * sDot;
+              float sunScatter = sDot2 * sDot2 * sDot2;
+              vec3 scatterFog = mix(fogColor, fogColor + uSun * 0.35, sunScatter * 0.75);
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, scatterFog, fogFactor);
+            #endif`
+          )
     }
-    material.customProgramCacheKey = () => `lit:${flash ? 1 : 0}:${model ? 1 : 0}`
+    material.customProgramCacheKey = () => `lit:${flash ? 1 : 0}:${model ? 1 : 0}:${foreground ? 1 : 0}`
     return material
   }
   const mat = lit(new MeshBasicMaterial({ vertexColors: true }))
   const matProp = lit(new MeshBasicMaterial({ vertexColors: true, map: propTex }), undefined, true)
   const foeFlash = { value: 0 }
   const matFoe = lit(new MeshBasicMaterial({ vertexColors: true, map: propTex }), foeFlash, true)
-  const matHand = lit(new MeshBasicMaterial({ vertexColors: true, map: propTex, transparent: true, fog: false }), undefined, true)
+  const matHand = lit(new MeshBasicMaterial({ vertexColors: true, map: propTex, fog: false }), undefined, true, true)
+  // Chocolate fundido con brillos especulares y fresnel líquido
   const matScroll = new MeshBasicMaterial({ vertexColors: true, map: stripes })
+  matScroll.onBeforeCompile = (shader) => {
+    shader.uniforms.uSun = light.uSun
+    shader.uniforms.uSunDir = light.uSunDir
+    shader.uniforms.uSky = light.uSky
+    shader.vertexShader =
+      'varying vec3 vLiqWorld;\n' +
+      shader.vertexShader.replace(
+        '#include <fog_vertex>',
+        '#include <fog_vertex>\nvLiqWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      )
+    shader.fragmentShader =
+      'uniform vec3 uSun;\nuniform vec3 uSunDir;\nuniform vec3 uSky;\nvarying vec3 vLiqWorld;\n' +
+      shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        vec3 lv = normalize(cameraPosition - vLiqWorld);
+        vec3 ln = normalize(vec3(sin(vLiqWorld.x * 3.0) * 0.06, 1.0, cos(vLiqWorld.z * 3.0) * 0.06));
+        float lspec = pow(max(dot(ln, normalize(uSunDir + lv)), 0.0), 42.0) * 0.55;
+        float lfres = pow(1.0 - max(dot(ln, lv), 0.0), 3.0) * 0.22;
+        diffuseColor.rgb += uSun * lspec + uSky * lfres;`
+      )
+  }
   const props = buildProps()
   const skin = buildSkin()
   const matHeld = lit(new MeshBasicMaterial({ vertexColors: true, map: propTex }), undefined, true)
@@ -610,10 +714,15 @@ export async function createFactory(opts: FactoryOptions) {
   const occ = (x: number, y: number, z: number) => (isOpaque(get(x, y, z)) ? 1 : 0)
 
   const palette = new Float32Array(64 * 3)
+  const palette8 = new Uint8Array(64 * 3)
   const color = new Color()
   for (const [id, def] of Object.entries(BLOCKS)) {
     color.set(def.color)
-    palette.set([color.r, color.g, color.b], Number(id) * 3)
+    const idx3 = Number(id) * 3
+    palette.set([color.r, color.g, color.b], idx3)
+    palette8[idx3] = Math.round(color.r * 255)
+    palette8[idx3 + 1] = Math.round(color.g * 255)
+    palette8[idx3 + 2] = Math.round(color.b * 255)
   }
 
   // Luz de farolas, ventanas y guirnaldas por celdas, y un destello en cada cara a la vista
@@ -637,7 +746,7 @@ export async function createFactory(opts: FactoryOptions) {
   const glowTex = glowTexture()
   const glowMat = new PointsMaterial({
     map: glowTex,
-    size: 3.4,
+    size: isMobile ? 2.8 : 3.4,
     vertexColors: true,
     transparent: true,
     depthWrite: false,
@@ -657,14 +766,15 @@ export async function createFactory(opts: FactoryOptions) {
   fixed(stageGlows)
   let glowGeo = hubGlowGeo
   disposables.push(hubGlowGeo, stageGlowGeo, glowTex, glowMat)
+  const GLOW_LIMIT = isMobile ? 1200 : 2400
   const buildGlows = (x0 = 0, y0 = 0, z0 = 0, x1 = W - 1, y1 = H - 1, z1 = D - 1) => {
     const spots: number[] = []
     const tints: number[] = []
-    for (let y = y0; y <= y1 && spots.length <= 2400; y++) {
+    for (let y = y0; y <= y1 && spots.length <= GLOW_LIMIT; y++) {
       const yOff = y << 14
-      for (let z = z0; z <= z1 && spots.length <= 2400; z++) {
+      for (let z = z0; z <= z1 && spots.length <= GLOW_LIMIT; z++) {
         const yzOff = yOff | (z << 7)
-        for (let x = x0; x <= x1 && spots.length <= 2400; x++) {
+        for (let x = x0; x <= x1 && spots.length <= GLOW_LIMIT; x++) {
           const t = blocks[yzOff | x]
           if (!GLOW[t]) continue
           const r = palette[t * 3] * 0.5
@@ -834,19 +944,19 @@ export async function createFactory(opts: FactoryOptions) {
     return geo
   }
 
-  // Buffers reutilizables para construir chunks sin generar basura en el GC
+  // Buffers reutilizables compactos (26 B/vértice en vez de 51 B/vértice) sin generar basura en el GC
   let capV = 32768
   let sPos = new Float32Array(capV * 3)
-  let sCol = new Float32Array(capV * 4)
+  let sCol = new Uint8Array(capV * 4)
   let sUv = new Float32Array(capV * 2)
   let sNrm = new Int8Array(capV * 3)
-  let sOcc = new Float32Array(capV * 2)
-  let sTile = new Float32Array(capV)
+  let sOcc = new Uint8Array(capV * 2)
+  let sTile = new Uint8Array(capV)
   let sIdx = new Uint32Array((capV >> 2) * 6)
   const ensureScratch = (needV: number) => {
     if (needV <= capV) return
     while (capV < needV) capV <<= 1
-    const grow = <T extends Float32Array | Int8Array | Uint32Array>(
+    const grow = <T extends Float32Array | Int8Array | Uint8Array | Uint32Array>(
       old: T,
       Ctor: new (len: number) => T,
       len: number
@@ -856,11 +966,11 @@ export async function createFactory(opts: FactoryOptions) {
       return next
     }
     sPos = grow(sPos, Float32Array, capV * 3)
-    sCol = grow(sCol, Float32Array, capV * 4)
+    sCol = grow(sCol, Uint8Array, capV * 4)
     sUv = grow(sUv, Float32Array, capV * 2)
     sNrm = grow(sNrm, Int8Array, capV * 3)
-    sOcc = grow(sOcc, Float32Array, capV * 2)
-    sTile = grow(sTile, Float32Array, capV)
+    sOcc = grow(sOcc, Uint8Array, capV * 2)
+    sTile = grow(sTile, Uint8Array, capV)
     sIdx = grow(sIdx, Uint32Array, (capV >> 2) * 6)
   }
 
@@ -895,9 +1005,6 @@ export async function createFactory(opts: FactoryOptions) {
     light.uSunDir.value.copy(sunDir)
     for (let ci = 0; ci < chunks.length; ci++) pending.add(ci)
   }
-  const lum = new Float32Array(4)
-  const cAo = new Float32Array(4)
-  const cOpen = new Uint8Array(4)
   const maskKey = new Int32Array(CHUNK * H)
   const buildChunk = (ci: number) => {
     const x0 = (ci % CHUNKS_X) * CHUNK
@@ -921,27 +1028,33 @@ export async function createFactory(opts: FactoryOptions) {
     let vCount = 0
     let iCount = 0
 
-    const emitUniformQuad = (
+    const emitQuad = (
       x0v: number, y0v: number, z0v: number,
       x1v: number, y1v: number, z1v: number,
       x2v: number, y2v: number, z2v: number,
       x3v: number, y3v: number, z3v: number,
       nx: number, ny: number, nz: number,
-      t: number, aoVal: number, openVal: number,
-      rw: number, rh: number
+      key: number, rw: number, rh: number
     ) => {
       ensureScratch(vCount + 4)
       const base = vCount
       const p3 = base * 3
       const p4 = base * 4
       const p2 = base * 2
-      const r = palette[t * 3]
-      const g = palette[t * 3 + 1]
-      const b = palette[t * 3 + 2]
+      const t = key & 63
+      const r = palette8[t * 3]
+      const g = palette8[t * 3 + 1]
+      const b = palette8[t * 3 + 2]
       const tile = TILE_OF[t] ?? TILE.PLATE
-      const em = GLOW[t] ? 2 : 0
-      const occX = 1 - aoVal
-      const occY = 1 - openVal * 0.25
+      const em = GLOW[t] ? 255 : 0
+      const ao0 = AO[(key >> 6) & 3]
+      const ao1 = AO[(key >> 8) & 3]
+      const ao2 = AO[(key >> 10) & 3]
+      const ao3 = AO[(key >> 12) & 3]
+      const op0 = (key >> 14) & 7
+      const op1 = (key >> 17) & 7
+      const op2 = (key >> 20) & 7
+      const op3 = (key >> 23) & 7
 
       sPos[p3] = x0v; sPos[p3 + 1] = y0v; sPos[p3 + 2] = z0v
       sPos[p3 + 3] = x1v; sPos[p3 + 4] = y1v; sPos[p3 + 5] = z1v
@@ -951,34 +1064,46 @@ export async function createFactory(opts: FactoryOptions) {
       for (let k = 0; k < 4; k++) {
         const k3 = p3 + k * 3
         const k4 = p4 + k * 4
-        const k2 = p2 + k * 2
         sNrm[k3] = nx; sNrm[k3 + 1] = ny; sNrm[k3 + 2] = nz
         sCol[k4] = r; sCol[k4 + 1] = g; sCol[k4 + 2] = b; sCol[k4 + 3] = em
-        sOcc[k2] = occX; sOcc[k2 + 1] = occY
         sTile[base + k] = tile
       }
+      sOcc[p2] = Math.round((1 - ao0) * 255); sOcc[p2 + 1] = Math.round((1 - op0 * 0.25) * 255)
+      sOcc[p2 + 2] = Math.round((1 - ao1) * 255); sOcc[p2 + 3] = Math.round((1 - op1 * 0.25) * 255)
+      sOcc[p2 + 4] = Math.round((1 - ao2) * 255); sOcc[p2 + 5] = Math.round((1 - op2 * 0.25) * 255)
+      sOcc[p2 + 6] = Math.round((1 - ao3) * 255); sOcc[p2 + 7] = Math.round((1 - op3 * 0.25) * 255)
+
       sUv[p2] = 0; sUv[p2 + 1] = 0
       sUv[p2 + 2] = rw; sUv[p2 + 3] = 0
       sUv[p2 + 4] = rw; sUv[p2 + 5] = rh
       sUv[p2 + 6] = 0; sUv[p2 + 7] = rh
 
-      sIdx[iCount] = base; sIdx[iCount + 1] = base + 1; sIdx[iCount + 2] = base + 2
-      sIdx[iCount + 3] = base; sIdx[iCount + 4] = base + 2; sIdx[iCount + 5] = base + 3
+      const l0 = ao0 * (0.58 + op0 * 0.105)
+      const l1 = ao1 * (0.58 + op1 * 0.105)
+      const l2 = ao2 * (0.58 + op2 * 0.105)
+      const l3 = ao3 * (0.58 + op3 * 0.105)
+      if (l0 + l2 >= l1 + l3) {
+        sIdx[iCount] = base; sIdx[iCount + 1] = base + 1; sIdx[iCount + 2] = base + 2
+        sIdx[iCount + 3] = base; sIdx[iCount + 4] = base + 2; sIdx[iCount + 5] = base + 3
+      } else {
+        sIdx[iCount] = base + 1; sIdx[iCount + 1] = base + 2; sIdx[iCount + 2] = base + 3
+        sIdx[iCount + 3] = base + 1; sIdx[iCount + 4] = base + 3; sIdx[iCount + 5] = base
+      }
       vCount += 4
       iCount += 6
     }
 
-    const emitLitCell = (x: number, y: number, z: number, t: number, f: number) => {
+    // Empaqueta (t, ao0..3, open0..3) en 26 bits para fusionar también tiras 1D con gradiente lineal de AO/sombra
+    const UNIFORM_GLOW_BITS = (3 << 6) | (3 << 8) | (3 << 10) | (3 << 12) | (4 << 14) | (4 << 17) | (4 << 20) | (4 << 23)
+    const packCell = (x: number, y: number, z: number, t: number, f: number, sunlit: boolean) => {
+      if (GLOW[t]) return t | UNIFORM_GLOW_BITS
       const face = FACES[f]
       const n = face.n
       const px = x + n[0]
       const py = y + n[1]
       const pz = z + n[2]
-      const glow = GLOW[t] ? 2 : 0
-      if (glow) return t | (3 << 6) | (4 << 8)
-      const fs = sunAt(px, py, pz)
-      let uniform = true
-      let aoIdx0 = 3
+      const fs = sunlit ? sunAt(px, py, pz) : 1
+      let key = t
       for (let k = 0; k < 4; k++) {
         const c = face.c[k]
         const o1 = c[face.a[0]] * 2 - 1
@@ -991,52 +1116,16 @@ export async function createFactory(opts: FactoryOptions) {
         const s2 = occ(px, py + wy, pz + wz)
         const s3 = occ(px + ux, py + uy + wy, pz + wz)
         const hid = s3 || (s1 && s2)
-        const open =
-          fs +
-          (s1 ? fs : sunAt(px + ux, py + uy, pz)) +
-          (s2 ? fs : sunAt(px, py + wy, pz + wz)) +
-          (hid ? fs : sunAt(px + ux, py + uy + wy, pz + wz))
+        const open = sunlit
+          ? fs +
+            (s1 ? fs : sunAt(px + ux, py + uy, pz)) +
+            (s2 ? fs : sunAt(px, py + wy, pz + wz)) +
+            (hid ? fs : sunAt(px + ux, py + uy + wy, pz + wz))
+          : 4
         const aoIdx = s1 && s2 ? 0 : 3 - s1 - s2 - s3
-        const ao = AO[aoIdx]
-        cAo[k] = ao
-        cOpen[k] = open
-        lum[k] = ao * (0.58 + open * 0.105)
-        if (k === 0) aoIdx0 = aoIdx
-        else if (ao !== cAo[0] || open !== cOpen[0]) uniform = false
+        key |= (aoIdx << (6 + k * 2)) | (open << (14 + k * 3))
       }
-      if (uniform) return t | (aoIdx0 << 6) | (cOpen[0] << 8)
-      // Cara con gradiente de AO/sombra: se emite 1x1 para conservar la interpolación exacta
-      ensureScratch(vCount + 4)
-      const base = vCount
-      const p3 = base * 3
-      const p4 = base * 4
-      const p2 = base * 2
-      const r = palette[t * 3]
-      const g = palette[t * 3 + 1]
-      const b = palette[t * 3 + 2]
-      const tile = TILE_OF[t] ?? TILE.PLATE
-      for (let k = 0; k < 4; k++) {
-        const c = face.c[k]
-        const k3 = p3 + k * 3
-        const k4 = p4 + k * 4
-        const k2 = p2 + k * 2
-        sPos[k3] = x + c[0]; sPos[k3 + 1] = y + c[1]; sPos[k3 + 2] = z + c[2]
-        sCol[k4] = r; sCol[k4 + 1] = g; sCol[k4 + 2] = b; sCol[k4 + 3] = 0
-        sNrm[k3] = n[0]; sNrm[k3 + 1] = n[1]; sNrm[k3 + 2] = n[2]
-        sOcc[k2] = 1 - cAo[k]; sOcc[k2 + 1] = 1 - cOpen[k] * 0.25
-        sUv[k2] = QUAD_UV[k * 2]; sUv[k2 + 1] = QUAD_UV[k * 2 + 1]
-        sTile[base + k] = tile
-      }
-      if (lum[0] + lum[2] >= lum[1] + lum[3]) {
-        sIdx[iCount] = base; sIdx[iCount + 1] = base + 1; sIdx[iCount + 2] = base + 2
-        sIdx[iCount + 3] = base; sIdx[iCount + 4] = base + 2; sIdx[iCount + 5] = base + 3
-      } else {
-        sIdx[iCount] = base + 1; sIdx[iCount + 1] = base + 2; sIdx[iCount + 2] = base + 3
-        sIdx[iCount + 3] = base + 1; sIdx[iCount + 4] = base + 3; sIdx[iCount + 5] = base
-      }
-      vCount += 4
-      iCount += 6
-      return 0
+      return key
     }
 
     const greedyMerge = (w: number, h: number, emit: (i: number, j: number, rw: number, rh: number, key: number) => void) => {
@@ -1048,15 +1137,30 @@ export async function createFactory(opts: FactoryOptions) {
             i++
             continue
           }
+          const ao0 = (key >> 6) & 3
+          const ao1 = (key >> 8) & 3
+          const ao2 = (key >> 10) & 3
+          const ao3 = (key >> 12) & 3
+          const op0 = (key >> 14) & 7
+          const op1 = (key >> 17) & 7
+          const op2 = (key >> 20) & 7
+          const op3 = (key >> 23) & 7
+          // Solo se fusiona a lo largo de un eje si la iluminación es constante en ese eje (interpolación 100 % exacta)
+          const constU = ao0 === ao1 && ao3 === ao2 && op0 === op1 && op3 === op2
+          const constV = ao0 === ao3 && ao1 === ao2 && op0 === op3 && op1 === op2
           let rw = 1
-          while (i + rw < w && maskKey[row + i + rw] === key) rw++
+          if (constU) {
+            while (i + rw < w && maskKey[row + i + rw] === key) rw++
+          }
           let rh = 1
-          outer: while (j + rh < h) {
-            const nextRow = (j + rh) * w + i
-            for (let k = 0; k < rw; k++) {
-              if (maskKey[nextRow + k] !== key) break outer
+          if (constV) {
+            outer: while (j + rh < h) {
+              const nextRow = (j + rh) * w + i
+              for (let k = 0; k < rw; k++) {
+                if (maskKey[nextRow + k] !== key) break outer
+              }
+              rh++
             }
-            rh++
           }
           for (let dj = 0; dj < rh; dj++) maskKey.fill(0, (j + dj) * w + i, (j + dj) * w + i + rw)
           emit(i, j, rw, rh, key)
@@ -1069,6 +1173,7 @@ export async function createFactory(opts: FactoryOptions) {
     // Caras +X (0) y -X (1): planos en x, máscara (z, y)
     for (let f = 0; f < 2; f++) {
       const nx = f === 0 ? 1 : -1
+      const sunlit = nx * sunDir.x > 0
       for (let lx = 0; lx < CHUNK; lx++) {
         const x = x0 + lx
         const px = x + nx
@@ -1083,20 +1188,16 @@ export async function createFactory(opts: FactoryOptions) {
               maskKey[row + lz] = 0
               continue
             }
-            const key = emitLitCell(x, y, z, t, f)
-            maskKey[row + lz] = key
-            if (key) any = true
+            maskKey[row + lz] = packCell(x, y, z, t, f, sunlit)
+            any = true
           }
         }
         if (!any) continue
         const fx = f === 0 ? x + 1 : x
         greedyMerge(CHUNK, hSlice, (i, j, rw, rh, key) => {
-          const t = key & 63
-          const aoVal = AO[(key >> 6) & 3]
-          const openVal = (key >> 8) & 7
           const zs = z0 + i
-          if (f === 0) emitUniformQuad(fx, j, zs + rw, fx, j, zs, fx, j + rh, zs, fx, j + rh, zs + rw, 1, 0, 0, t, aoVal, openVal, rw, rh)
-          else emitUniformQuad(fx, j, zs, fx, j, zs + rw, fx, j + rh, zs + rw, fx, j + rh, zs, -1, 0, 0, t, aoVal, openVal, rw, rh)
+          if (f === 0) emitQuad(fx, j, zs + rw, fx, j, zs, fx, j + rh, zs, fx, j + rh, zs + rw, 1, 0, 0, key, rw, rh)
+          else emitQuad(fx, j, zs, fx, j, zs + rw, fx, j + rh, zs + rw, fx, j + rh, zs, -1, 0, 0, key, rw, rh)
         })
       }
     }
@@ -1104,6 +1205,7 @@ export async function createFactory(opts: FactoryOptions) {
     // Caras +Y (2) y -Y (3): planos en y, máscara (x, z)
     for (let f = 2; f < 4; f++) {
       const ny = f === 2 ? 1 : -1
+      const sunlit = ny > 0
       for (let y = 0; y <= yMax; y++) {
         const py = y + ny
         const yOff = y << 14
@@ -1120,21 +1222,17 @@ export async function createFactory(opts: FactoryOptions) {
               maskKey[row + lx] = 0
               continue
             }
-            const key = emitLitCell(x, y, z, t, f)
-            maskKey[row + lx] = key
-            if (key) any = true
+            maskKey[row + lx] = packCell(x, y, z, t, f, sunlit)
+            any = true
           }
         }
         if (!any) continue
         const fy = f === 2 ? y + 1 : y
         greedyMerge(CHUNK, CHUNK, (i, j, rw, rh, key) => {
-          const t = key & 63
-          const aoVal = AO[(key >> 6) & 3]
-          const openVal = (key >> 8) & 7
           const xs = x0 + i
           const zs = z0 + j
-          if (f === 2) emitUniformQuad(xs, fy, zs + rh, xs + rw, fy, zs + rh, xs + rw, fy, zs, xs, fy, zs, 0, 1, 0, t, aoVal, openVal, rw, rh)
-          else emitUniformQuad(xs, fy, zs, xs + rw, fy, zs, xs + rw, fy, zs + rh, xs, fy, zs + rh, 0, -1, 0, t, aoVal, openVal, rw, rh)
+          if (f === 2) emitQuad(xs, fy, zs + rh, xs + rw, fy, zs + rh, xs + rw, fy, zs, xs, fy, zs, 0, 1, 0, key, rw, rh)
+          else emitQuad(xs, fy, zs, xs + rw, fy, zs, xs + rw, fy, zs + rh, xs, fy, zs + rh, 0, -1, 0, key, rw, rh)
         })
       }
     }
@@ -1142,6 +1240,7 @@ export async function createFactory(opts: FactoryOptions) {
     // Caras +Z (4) y -Z (5): planos en z, máscara (x, y)
     for (let f = 4; f < 6; f++) {
       const nz = f === 4 ? 1 : -1
+      const sunlit = nz * sunDir.z > 0
       for (let lz = 0; lz < CHUNK; lz++) {
         const z = z0 + lz
         const pz = z + nz
@@ -1158,20 +1257,16 @@ export async function createFactory(opts: FactoryOptions) {
               maskKey[row + lx] = 0
               continue
             }
-            const key = emitLitCell(x, y, z, t, f)
-            maskKey[row + lx] = key
-            if (key) any = true
+            maskKey[row + lx] = packCell(x, y, z, t, f, sunlit)
+            any = true
           }
         }
         if (!any) continue
         const fz = f === 4 ? z + 1 : z
         greedyMerge(CHUNK, hSlice, (i, j, rw, rh, key) => {
-          const t = key & 63
-          const aoVal = AO[(key >> 6) & 3]
-          const openVal = (key >> 8) & 7
           const xs = x0 + i
-          if (f === 4) emitUniformQuad(xs, j, fz, xs + rw, j, fz, xs + rw, j + rh, fz, xs, j + rh, fz, 0, 0, 1, t, aoVal, openVal, rw, rh)
-          else emitUniformQuad(xs + rw, j, fz, xs, j, fz, xs, j + rh, fz, xs + rw, j + rh, fz, 0, 0, -1, t, aoVal, openVal, rw, rh)
+          if (f === 4) emitQuad(xs, j, fz, xs + rw, j, fz, xs + rw, j + rh, fz, xs, j + rh, fz, 0, 0, 1, key, rw, rh)
+          else emitQuad(xs + rw, j, fz, xs, j, fz, xs, j + rh, fz, xs + rw, j + rh, fz, 0, 0, -1, key, rw, rh)
         })
       }
     }
@@ -1179,10 +1274,10 @@ export async function createFactory(opts: FactoryOptions) {
     if (!vCount) return
     const geo = new BufferGeometry()
     geo.setAttribute('position', new BufferAttribute(sPos.slice(0, vCount * 3), 3))
-    geo.setAttribute('color', new BufferAttribute(sCol.slice(0, vCount * 4), 4))
+    geo.setAttribute('color', new BufferAttribute(sCol.slice(0, vCount * 4), 4, true))
     geo.setAttribute('uv', new BufferAttribute(sUv.slice(0, vCount * 2), 2))
     geo.setAttribute('normal', new BufferAttribute(sNrm.slice(0, vCount * 3), 3))
-    geo.setAttribute('aOcc', new BufferAttribute(sOcc.slice(0, vCount * 2), 2))
+    geo.setAttribute('aOcc', new BufferAttribute(sOcc.slice(0, vCount * 2), 2, true))
     geo.setAttribute('aTile', new BufferAttribute(sTile.slice(0, vCount), 1))
     geo.setIndex(
       new BufferAttribute(
@@ -1360,12 +1455,21 @@ export async function createFactory(opts: FactoryOptions) {
             float seed = hash(cell);
             float star = step(0.9935, seed) * (0.55 + 0.45 * sin(uTime * 1.7 + seed * 400.0));
             col += vec3(0.9, 0.95, 1.0) * star * (0.4 + fract(seed * 91.0)) * uNight * smoothstep(0.0, 0.2, d.y);
+
+            // Aurora boreal suave en el cielo nocturno navideño
+            if (d.y > 0.08 && d.y < 0.72) {
+              float wave = sin(d.x * 4.5 + uTime * 0.22 + sin(d.z * 3.2 - uTime * 0.15) * 1.4);
+              float band = exp(-pow((d.y - 0.34 - wave * 0.08) * 7.5, 2.0));
+              float curtain = 0.5 + 0.5 * sin(d.x * 14.0 + d.z * 9.0 + uTime * 0.45);
+              vec3 aurCol = mix(vec3(0.08, 0.78, 0.65), vec3(0.45, 0.24, 0.85), clamp((d.y - 0.22) * 3.2, 0.0, 1.0));
+              col += aurCol * band * (0.35 + 0.65 * curtain) * uNight * 0.26;
+            }
           }
 
           // Luna pixelada, con cráteres y la fase de hoy
           float md = dot(d, uMoonDir);
           if (md > 0.0) {
-            col += vec3(0.5, 0.62, 1.0) * uNight * pow(md, 90.0) * 0.3;
+            col += vec3(0.5, 0.62, 1.0) * uNight * pow(md, 90.0) * 0.35;
             vec2 q = (floor(vec2(dot(d, uMoonX), dot(d, uMoonY)) / 0.075 * 9.0) + 0.5) / 9.0;
             if (dot(q, q) < 1.0) {
               float limb = cos(uPhase * 6.2831853) * sqrt(max(0.0, 1.0 - q.y * q.y));
@@ -1376,29 +1480,22 @@ export async function createFactory(opts: FactoryOptions) {
           }
         }
 
-        // Sol cuadrado y pixelado
+        // Sol cuadrado y pixelado con halo atmosférico
         if (uSun > 0.001) {
           float sd = dot(d, uSunDir);
           if (sd > 0.0) {
-            col += vec3(1.0, 0.82, 0.5) * uSun * pow(sd, 40.0) * 0.45;
+            col += vec3(1.0, 0.78, 0.45) * uSun * (pow(sd, 36.0) * 0.5 + pow(sd, 6.0) * 0.14);
             vec2 sq = (floor(vec2(dot(d, uSunX), dot(d, uSunY)) / 0.085 * 4.0) + 0.5) / 4.0;
             float sm = max(abs(sq.x), abs(sq.y));
             if (sm < 1.0) {
               vec3 sunCol = sm < 0.5 ? vec3(1.0, 0.99, 0.88) : (sm < 0.75 ? vec3(1.0, 0.9, 0.42) : vec3(1.0, 0.72, 0.2));
-              col = mix(col, sunCol * 1.25, uSun * (sm < 0.75 ? 1.0 : 0.85));
+              col = mix(col, sunCol * 1.45, uSun * (sm < 0.75 ? 1.0 : 0.85));
             }
           }
         }
 
-        // Nubes de bloques que derivan despacio
-        if (d.y > 0.03) {
-          vec2 p = d.xz / (d.y + 0.12) * 2.2 + vec2(uTime * 0.012, 0.0);
-          vec2 c = floor(p * 7.0);
-          float n = mix(hash(floor(c / 5.0)), hash(floor(c / 2.0)), 0.45);
-          col = mix(col, uCloud, step(0.73, n) * smoothstep(0.03, 0.3, d.y) * 0.6);
-        }
-
         gl_FragColor = vec4(col, 1.0);
+        #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
   })
@@ -1408,6 +1505,145 @@ export async function createFactory(opts: FactoryOptions) {
   skyDome.renderOrder = 1
   fixed(skyDome)
   disposables.push(skyGeo, skyMat)
+
+  // Nubes 3D estilo Minecraft (bloques con grosor, sombreado por cara y desplazamiento infinito en 1 draw call)
+  const CLOUD_PERIOD = 192
+  const clouds = (() => {
+    const N = 24
+    const CELL = CLOUD_PERIOD / N // 8 bloques por celda
+    const THICK = 3.2
+    const grid = new Uint8Array(N * N)
+    const crand = mulberry32(2025)
+    const stamp = (cx: number, cz: number, w: number, d: number) => {
+      for (let dz = 0; dz < d; dz++) {
+        const z = (((cz + dz) % N) + N) % N
+        for (let dx = 0; dx < w; dx++) {
+          const x = (((cx + dx) % N) + N) % N
+          grid[z * N + x] = 1
+        }
+      }
+    }
+    // Grupos rectangulares cohesivos, como el mapa de nubes clásico de Minecraft
+    for (let i = 0; i < 16; i++) {
+      const cx = Math.floor(crand() * N)
+      const cz = Math.floor(crand() * N)
+      const w = 2 + Math.floor(crand() * 4)
+      const d = 1 + Math.floor(crand() * 3)
+      stamp(cx, cz, w, d)
+      if (crand() < 0.75) {
+        stamp(cx + Math.floor(crand() * w) - 1, cz + Math.floor(crand() * d) - 1, 1 + Math.floor(crand() * 3), 1 + Math.floor(crand() * 2))
+      }
+    }
+    const atC = (x: number, z: number) => grid[((((z % N) + N) % N) * N) + (((x % N) + N) % N)]
+    const pos: number[] = []
+    const nrm: number[] = []
+    const idx: number[] = []
+    const quad = (
+      x0: number, y0: number, z0: number,
+      x1: number, y1: number, z1: number,
+      x2: number, y2: number, z2: number,
+      x3: number, y3: number, z3: number,
+      nx: number, ny: number, nz: number
+    ) => {
+      const base = pos.length / 3
+      pos.push(x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3)
+      nrm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz)
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
+    }
+    // Rejilla 2x2 (384x384) centrada en el origen para cubrir más allá del horizonte y envolver sin cortes
+    const M = N * 2
+    const off = -CLOUD_PERIOD
+    const mask = new Uint8Array(M * M)
+    for (let z = 0; z < M; z++) for (let x = 0; x < M; x++) mask[z * M + x] = atC(x, z)
+    // Greedy meshing de caras superior (+Y) e inferior (-Y)
+    for (let z = 0; z < M; z++) {
+      for (let x = 0; x < M; ) {
+        if (!mask[z * M + x]) {
+          x++
+          continue
+        }
+        let rw = 1
+        while (x + rw < M && mask[z * M + x + rw]) rw++
+        let rh = 1
+        outer: while (z + rh < M) {
+          for (let k = 0; k < rw; k++) if (!mask[(z + rh) * M + x + k]) break outer
+          rh++
+        }
+        for (let dz = 0; dz < rh; dz++) mask.fill(0, (z + dz) * M + x, (z + dz) * M + x + rw)
+        const x0 = off + x * CELL
+        const x1 = x0 + rw * CELL
+        const z0 = off + z * CELL
+        const z1 = z0 + rh * CELL
+        quad(x0, THICK, z1, x1, THICK, z1, x1, THICK, z0, x0, THICK, z0, 0, 1, 0)
+        quad(x0, 0, z0, x1, 0, z0, x1, 0, z1, x0, 0, z1, 0, -1, 0)
+        x += rw
+      }
+    }
+    // Caras laterales solo en los bordes de cada nube
+    for (let z = 0; z < M; z++) {
+      for (let x = 0; x < M; x++) {
+        if (!atC(x, z)) continue
+        const x0 = off + x * CELL
+        const x1 = x0 + CELL
+        const z0 = off + z * CELL
+        const z1 = z0 + CELL
+        if (!atC(x + 1, z)) quad(x1, 0, z1, x1, 0, z0, x1, THICK, z0, x1, THICK, z1, 1, 0, 0)
+        if (!atC(x - 1, z)) quad(x0, 0, z0, x0, 0, z1, x0, THICK, z1, x0, THICK, z0, -1, 0, 0)
+        if (!atC(x, z + 1)) quad(x0, 0, z1, x1, 0, z1, x1, THICK, z1, x0, THICK, z1, 0, 0, 1)
+        if (!atC(x, z - 1)) quad(x1, 0, z0, x0, 0, z0, x0, THICK, z0, x1, THICK, z0, 0, 0, -1)
+      }
+    }
+    const geo = new BufferGeometry()
+    geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))
+    geo.setAttribute('normal', new BufferAttribute(new Int8Array(nrm), 3))
+    geo.setIndex(new BufferAttribute(new Uint16Array(idx), 1))
+    const matCloud = new ShaderMaterial({
+      transparent: true,
+      depthWrite: true,
+      uniforms: {
+        uCloud: skyUniforms.uCloud,
+        uSun: light.uSun,
+        uSunDir: light.uSunDir,
+        uHorizon: skyUniforms.uHorizon,
+      },
+      vertexShader: `
+        varying vec3 vN;
+        varying vec3 vWorld;
+        void main() {
+          vN = normal;
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorld = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: `
+        uniform vec3 uCloud;
+        uniform vec3 uSun;
+        uniform vec3 uSunDir;
+        uniform vec3 uHorizon;
+        varying vec3 vN;
+        varying vec3 vWorld;
+        void main() {
+          // Sombreado direccional clásico de las nubes 3D de Minecraft
+          float shade = vN.y > 0.5 ? 1.0 : (vN.y < -0.5 ? 0.72 : (abs(vN.z) > 0.5 ? 0.88 : 0.82));
+          float sunEdge = max(dot(vN, uSunDir), 0.0) * 0.14;
+          vec3 col = uCloud * shade + uSun * sunEdge;
+          float dist = length(vWorld.xz - cameraPosition.xz);
+          float fade = smoothstep(185.0, 75.0, dist);
+          if (fade < 0.01) discard;
+          col = mix(uHorizon, col, smoothstep(185.0, 95.0, dist));
+          gl_FragColor = vec4(col, 0.88 * fade);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    })
+    const mesh = new Mesh(geo, matCloud)
+    mesh.position.set(64, 54, 64)
+    mesh.frustumCulled = false
+    mesh.renderOrder = 2
+    moving(mesh)
+    disposables.push(geo, matCloud)
+    return mesh
+  })()
 
   const zenNight = new Color(0x020818)
   const zenDay = new Color(0x3586dd)
@@ -1459,8 +1695,9 @@ export async function createFactory(opts: FactoryOptions) {
     } else light.uSun.value.copy(moonTint).multiplyScalar(0.3 * (0.35 + 0.65 * full))
     light.uGround.value.copy(light.uSun.value).multiplyScalar(0.18).add(color.copy(light.uSky.value).multiplyScalar(0.35))
     ambient.value.copy(light.uSun.value).multiplyScalar(0.75).add(light.uSky.value)
-    lamp.value.copy(lampTint).multiplyScalar(1.15 - day * 0.95)
-    glowMat.opacity = 0.9 - day * 0.65
+    lampBase.copy(lampTint).multiplyScalar(1.25 - day * 1.0)
+    lamp.value.copy(lampBase)
+    glowMat.opacity = 0.95 - day * 0.65
     matScroll.color.copy(ambient.value)
     fog.color.copy(skyUniforms.uHorizon.value)
     renderer.setClearColor(fog.color)
@@ -1578,7 +1815,6 @@ export async function createFactory(opts: FactoryOptions) {
       }`,
   })
   const portals = new Mesh(portalGeo, portalMat)
-  portals.frustumCulled = false
   fixed(portals)
   disposables.push(portalGeo, portalMat)
   const buildPortals = () => {
@@ -1603,6 +1839,7 @@ export async function createFactory(opts: FactoryOptions) {
     portalGeo.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2))
     portalGeo.setAttribute('aDone', new BufferAttribute(new Float32Array(done), 1))
     portalGeo.setIndex(idx)
+    if (pos.length) portalGeo.computeBoundingSphere()
     portals.visible = pos.length > 0 && !stage
   }
 
@@ -1711,14 +1948,25 @@ export async function createFactory(opts: FactoryOptions) {
   rebuildWorld()
   hubSunDir.copy(sunDir)
 
-  // Regalos en la cinta
+  // Todos los objetos móviles de la fábrica (regalos, monedas, reliquias, avión, Ibai y dragón) en 1 solo BatchedMesh
   const GIFTS = 12
-  const giftBodies = castShadow(new InstancedMesh(props.gift, matProp, GIFTS))
-  const giftRibbons = castShadow(new InstancedMesh(props.ribbon, matProp, GIFTS))
-  giftRibbons.instanceMatrix = giftBodies.instanceMatrix
-  giftBodies.frustumCulled = giftRibbons.frustumCulled = false
-  fixed(giftBodies)
-  fixed(giftRibbons)
+  const propGeos = [props.gift, props.ribbon, props.coin, props.relic, props.plane, props.ibai, props.dragon]
+  const propMaxInst = GIFTS * 2 + world.coins.length + world.relics.length + 3
+  const propVerts = propGeos.reduce((s, g) => s + g.attributes.position.count, 0)
+  const propIndices = propGeos.reduce((s, g) => s + g.index!.count, 0)
+  const propBatch = castShadow(fixed(new BatchedMesh(propMaxInst, propVerts, propIndices, matProp)))
+  propBatch.frustumCulled = false
+  propBatch.perObjectFrustumCulled = false
+  propBatch.sortObjects = false
+  const gGift = propBatch.addGeometry(props.gift)
+  const gRibbon = propBatch.addGeometry(props.ribbon)
+  const gCoin = propBatch.addGeometry(props.coin)
+  const gRelic = propBatch.addGeometry(props.relic)
+  const gPlane = propBatch.addGeometry(props.plane)
+  const gIbai = propBatch.addGeometry(props.ibai)
+  const gDragon = propBatch.addGeometry(props.dragon)
+  const giftBodyIds = Array.from({ length: GIFTS }, () => propBatch.addInstance(gGift))
+  const giftRibbonIds = Array.from({ length: GIFTS }, () => propBatch.addInstance(gRibbon))
   const giftPalette = [
     [0xf2e6c9, 0xc8323c],
     [0xb4317a, 0xf8b132],
@@ -1730,32 +1978,44 @@ export async function createFactory(opts: FactoryOptions) {
   const paintGifts = (golden: boolean) => {
     for (let i = 0; i < GIFTS; i++) {
       const [body, bow] = giftPalette[i % giftPalette.length]
-      giftBodies.setColorAt(i, color.set(golden ? 0xf8b132 : body))
-      giftRibbons.setColorAt(i, color.set(golden ? 0xfff2c4 : bow))
+      propBatch.setColorAt(giftBodyIds[i], color.set(golden ? 0xf8b132 : body))
+      propBatch.setColorAt(giftRibbonIds[i], color.set(golden ? 0xfff2c4 : bow))
     }
-    giftBodies.instanceColor!.needsUpdate = true
-    giftRibbons.instanceColor!.needsUpdate = true
   }
   paintGifts(false)
 
-  // Monedas de chocolate
+  // Monedas de chocolate y reliquias
   const coinTaken = world.coins.map((_, i) => save?.coins.includes(i) ?? false)
-  const coins = castShadow(new InstancedMesh(props.coin, matProp, world.coins.length))
-  coins.frustumCulled = false
-  fixed(coins)
+  const coinIds = world.coins.map((_, i) => {
+    const id = propBatch.addInstance(gCoin)
+    propBatch.setColorAt(id, color.set(0xffffff))
+    if (coinTaken[i]) propBatch.setVisibleAt(id, false)
+    return id
+  })
   const coinCount = () => coinTaken.filter(Boolean).length
 
   const relicTaken = world.relics.map((_, i) => opts.relics.includes(i))
-  const relics = castShadow(new InstancedMesh(props.relic, matProp, world.relics.length))
-  relics.frustumCulled = false
-  fixed(relics)
+  const relicIds = world.relics.map((_, i) => {
+    const id = propBatch.addInstance(gRelic)
+    propBatch.setColorAt(id, color.set(0xffffff))
+    if (relicTaken[i]) propBatch.setVisibleAt(id, false)
+    return id
+  })
 
-  const plane = castShadow(moving(new Mesh(props.plane, matProp)))
-  plane.rotation.order = 'YXZ'
-  const ibai = castShadow(moving(new Mesh(props.ibai, matProp)))
-  const dragon = castShadow(moving(new Mesh(props.dragon, matProp)))
-  dragon.scale.setScalar(1.5)
-  const hubObjects: Object3D[] = [doorBatch, portals, numbers, giftBodies, giftRibbons, coins, relics, plane, ibai, dragon]
+  const planeId = propBatch.addInstance(gPlane)
+  const ibaiId = propBatch.addInstance(gIbai)
+  const dragonId = propBatch.addInstance(gDragon)
+  color.set(0xffffff)
+  propBatch.setColorAt(planeId, color)
+  propBatch.setColorAt(ibaiId, color)
+  propBatch.setColorAt(dragonId, color)
+  const planePos = new Vector3(SPOT.center[0] + 30, 43, SPOT.center[2])
+  const plane = { position: planePos }
+  let ibaiScale = 1.7
+  const q2 = new Quaternion()
+  const peers = createPeersRenderer({ skin, matProp, castShadow, reducedMotion: opts.reducedMotion })
+  scene.add(peers.group)
+  const hubObjects: Object3D[] = [doorBatch, portals, numbers, propBatch, peers.group]
 
   // Sombras de contacto: un disco pixelado bajo cada personaje, todos en una sola malla
   const BLOBS = 96
@@ -1821,7 +2081,7 @@ export async function createFactory(opts: FactoryOptions) {
   }
 
   // Nieve alrededor del jugador, animada en el shader
-  const FLAKES = reducedMotion ? 0 : 260
+  const FLAKES = reducedMotion ? 0 : isMobile ? 120 : 260
   const snowGeo = new BufferGeometry()
   const flakes = new Float32Array(FLAKES * 3)
   const rand = mulberry32(99)
@@ -1898,7 +2158,6 @@ export async function createFactory(opts: FactoryOptions) {
   const hand = new Mesh(models.cube, matHand)
   hand.frustumCulled = false
   hand.renderOrder = 50
-  hand.onBeforeRender = () => renderer.clearDepth()
   camera.add(hand)
   let swing = 1
 
@@ -1926,6 +2185,8 @@ export async function createFactory(opts: FactoryOptions) {
   const legR = limb(skin.leg, 0.14, 0.6)
   const held = castShadow(new Mesh(models.cube, matHeld))
   armR.add(held)
+  let selfEmote: EmoteId | null = null
+  let selfEmoteTimer = 0
 
   // Jugador
   const pos = new Vector3(world.spawn.x, world.spawn.y, world.spawn.z)
@@ -2272,6 +2533,7 @@ export async function createFactory(opts: FactoryOptions) {
     fog.near = space ? 300 : 42
     fog.far = space ? 400 : 125
     snow.visible = !space
+    clouds.visible = !space
     blobStage = 0
     updateSky()
     rebuildWorld(def.bounds, false)
@@ -2332,9 +2594,10 @@ export async function createFactory(opts: FactoryOptions) {
     light.uSunDir.value.copy(sunDir)
     stageHour = null
     liquidLevel = null
-    fog.near = HUB_FOG[0]
-    fog.far = HUB_FOG[1]
+    fog.near = hubFog[0]
+    fog.far = hubFog[1]
     snow.visible = true
+    clouds.visible = true
     hubTerrain.visible = true
     hubGlows.visible = true
     for (const obj of hubObjects) obj.visible = true
@@ -2480,6 +2743,8 @@ export async function createFactory(opts: FactoryOptions) {
   >()
   let jumpHeld = false
   let fireHeld = false
+  let actionHeld = false
+  let hubRepeat = 0
   // Piloto automático para las pruebas: sustituye a teclado y ratón
   let bot: { f: number; s: number; jump: boolean; fire: boolean; run?: boolean; yaw: number; pitch: number } | null = null
   let timeScale = 1
@@ -2501,6 +2766,8 @@ export async function createFactory(opts: FactoryOptions) {
     pitch = Math.max(-1.5, Math.min(1.5, pitch - dy * speed))
   }
 
+  const STICK_RADIUS = 50
+  const STICK_DEADZONE = 0.12
   const onDown = (e: PointerEvent) => {
     if (paused || warp > 0) return
     if (e.pointerType === 'mouse' && !lockFailed) {
@@ -2522,6 +2789,7 @@ export async function createFactory(opts: FactoryOptions) {
       moved: 0,
       role,
     })
+    if (role === 'move') opts.onStick(e.clientX, e.clientY, 0, 0, true)
     try {
       canvas.setPointerCapture(e.pointerId)
     } catch {}
@@ -2533,13 +2801,25 @@ export async function createFactory(opts: FactoryOptions) {
     const dy = e.clientY - touch.y
     touch.x = e.clientX
     touch.y = e.clientY
+    if (Math.abs(dx) > 140 || Math.abs(dy) > 140) return
     touch.moved += Math.abs(dx) + Math.abs(dy)
     if (touch.role === 'look') return look(dx, dy, 0.0055)
-    const ox = Math.max(-1, Math.min(1, (touch.x - touch.sx) / 48))
-    const oy = Math.max(-1, Math.min(1, (touch.y - touch.sy) / 48))
-    stick.x = ox
-    stick.y = -oy
-    if (touch.moved > 8) opts.onStick(touch.sx, touch.sy, ox * 36, oy * 36, true)
+    let ox = (touch.x - touch.sx) / STICK_RADIUS
+    let oy = (touch.y - touch.sy) / STICK_RADIUS
+    const mag = Math.hypot(ox, oy)
+    if (mag > 1) {
+      ox /= mag
+      oy /= mag
+    }
+    const clampedMag = Math.min(1, mag)
+    if (clampedMag < STICK_DEADZONE) {
+      stick.x = stick.y = 0
+    } else {
+      const norm = (clampedMag - STICK_DEADZONE) / (1 - STICK_DEADZONE)
+      stick.x = (ox / clampedMag) * norm
+      stick.y = -(oy / clampedMag) * norm
+    }
+    opts.onStick(touch.sx, touch.sy, ox * 34, oy * 34, true)
   }
   const onUp = (e: PointerEvent) => {
     fireHeld = false
@@ -2550,7 +2830,9 @@ export async function createFactory(opts: FactoryOptions) {
       stick.x = stick.y = 0
       opts.onStick(0, 0, 0, 0, false)
     }
-    if (e.type !== 'pointerup' || paused || touch.moved > 10 || performance.now() - touch.at > 350) return
+    const maxMove = e.pointerType === 'mouse' ? 10 : 16
+    if (e.type !== 'pointerup' || paused || touch.moved > maxMove || performance.now() - touch.at > 380) return
+    if (flying()) return
     // Toque corto: se actúa sobre lo que hay bajo el dedo
     const rect = canvas.getBoundingClientRect()
     eye.copy(camera.position)
@@ -2572,6 +2854,7 @@ export async function createFactory(opts: FactoryOptions) {
     opts.onLock(locked())
   }
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
     typed = (typed + e.key).slice(-KONAMI.length)
     if (!stage && (typed.endsWith(KONAMI) || typed.toLowerCase().endsWith('ibai'))) {
       typed = ''
@@ -2792,18 +3075,23 @@ export async function createFactory(opts: FactoryOptions) {
   let shadows = true
   let shadowDirty = true
   disposables.push(shadowMat)
-  // Precompila matFoe al arrancar para evitar un tirón en el primer frame de un jefe
+  // Precompila matFoe y SpriteMaterial al arrancar para evitar tirones en el primer golpe a un jefe
   const warmFoe = new Mesh(models.cube, matFoe)
   warmFoe.position.set(0, -999, 0)
-  scene.add(warmFoe)
+  const warmSpriteMat = new SpriteMaterial({ map: glowTex, transparent: true, depthTest: false, depthWrite: false, fog: false })
+  const warmSprite = new Sprite(warmSpriteMat)
+  warmSprite.position.set(0, -999, 0)
+  scene.add(warmFoe, warmSprite)
   renderer.compile(scene, camera)
-  scene.remove(warmFoe)
+  scene.remove(warmFoe, warmSprite)
+  warmSpriteMat.dispose()
 
   const renderShadows = () => {
     light.uShadowOn.value = shadows && !flying() ? 1 : 0
     blobMat.opacity = light.uShadowOn.value ? 0.3 : 0.45
     if (!light.uShadowOn.value) return
     if (paused && !shadowDirty && frames % 6 !== 0) return
+    if (isMobile && !shadowDirty && frames % 2 !== 0) return
     shadowDirty = false
     // Centrada por delante de la cámara y ajustada a la rejilla de texels para que no tiemble
     const ry = camera.rotation.y
@@ -2835,27 +3123,39 @@ export async function createFactory(opts: FactoryOptions) {
   // Bucle
   const point = { x: 0, z: 0 }
   let last = 0
+  let lastPausedRender = 0
   let time = 0
   let slow = 0
   let frames = 0
   let skyClock = 0
 
   const frame = (now: number) => {
+    if (paused && isMobile && now - lastPausedRender < 48) {
+      last = now
+      return
+    }
+    if (paused) lastPausedRender = now
     const dt = Math.min(0.05, (now - last) / 1000 || 0.016)
     last = now
     time += dt
 
     // Si el dispositivo no llega, se baja la resolución antes que los fps
-    if (frames++ > 30) {
+    if (!paused && frames++ > 30) {
       slow = dt > 0.024 ? slow + 1 : Math.max(0, slow - 1)
-      if (slow > 45 && dpr > 1) {
+      const threshold = isMobile ? 28 : 45
+      if (slow > threshold && dpr > 1) {
         dpr = Math.max(1, dpr - 0.25)
         renderer.setPixelRatio(dpr)
         resize()
         slow = 0
-      } else if (slow > 45 && shadows) {
+      } else if (slow > threshold && shadows) {
         // Último recurso: solo las sombras horneadas
         shadows = false
+        slow = 0
+      } else if (isMobile && slow > threshold && dpr > 0.75) {
+        dpr = 0.75
+        renderer.setPixelRatio(dpr)
+        resize()
         slow = 0
       }
     }
@@ -2884,10 +3184,17 @@ export async function createFactory(opts: FactoryOptions) {
               eye.set(pos.x, pos.y + EYE, pos.z)
               dir.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch))
               act(false, 6)
-            } else if (fireHeld && locked() && stage.def.weapon === 'snow') {
+            } else if ((fireHeld && locked() && stage.def.weapon === 'snow') || (actionHeld && !flying())) {
               aimCenter()
               act(false, 6)
             }
+          }
+        } else if (actionHeld) {
+          hubRepeat -= dt
+          if (hubRepeat <= 0) {
+            hubRepeat = 0.28
+            aimCenter()
+            act(placing, 6)
           }
         }
       }
@@ -2952,6 +3259,32 @@ export async function createFactory(opts: FactoryOptions) {
       if (weapon === 'snow') armR.rotation.x = -Math.PI / 2 - pitch + arc * 0.25
       else if (weapon === 'sword') armR.rotation.x = -0.7 + arc * 0.5 - Math.sin(swing * Math.PI * 2) * 1.3
       else armR.rotation.x = (held.visible ? -0.45 : walk * 0.75) - arc * 1.1
+      if (!stage && selfEmoteTimer > 0 && selfEmote) {
+        selfEmoteTimer = Math.max(0, selfEmoteTimer - dt)
+        const t = 2.6 - selfEmoteTimer
+        const motion = opts.reducedMotion ? 0 : 1
+        if (selfEmote === 'wave') {
+          armR.rotation.x = -2.5
+          armR.rotation.z = 0.35 + Math.sin(t * 14) * 0.45 * motion
+        } else if (selfEmote === 'dance') {
+          avatar.rotation.y += Math.sin(t * 7) * 0.55 * motion
+          avatar.position.y += Math.abs(Math.sin(t * 10)) * 0.22 * motion
+          armL.rotation.x = -1.6 + Math.sin(t * 10) * 0.7 * motion
+          armR.rotation.x = -1.6 - Math.sin(t * 10) * 0.7 * motion
+          armL.rotation.z = -0.45
+          armR.rotation.z = 0.45
+        } else if (selfEmote === 'celebrate') {
+          avatar.position.y += Math.abs(Math.sin(t * 8)) * 0.45 * motion
+          armL.rotation.x = -2.7
+          armR.rotation.x = -2.7
+          armL.rotation.z = -0.28
+          armR.rotation.z = 0.28
+        } else if (selfEmote === 'gg') {
+          armR.rotation.x = -2.15
+          armR.rotation.z = -0.15
+        }
+        if (selfEmoteTimer <= 0) selfEmote = null
+      }
     }
     if (weapon === 'sword') {
       hand.position.set(0.4 - arc * 0.3 + sway, -0.36 + bob * 0.4, -0.7)
@@ -2978,6 +3311,8 @@ export async function createFactory(opts: FactoryOptions) {
       updateSky()
     }
     skyUniforms.uTime.value = time
+    if (clouds.visible) clouds.position.x = 64 + ((time * 1.1) % CLOUD_PERIOD) - CLOUD_PERIOD * 0.5
+    lamp.value.copy(lampBase).multiplyScalar(1 + Math.sin(time * 3.1) * 0.035)
     stripes.offset.y = (time * 1.2) % 1
 
     // Un trozo del mundo por frame, el más cercano primero
@@ -2998,6 +3333,7 @@ export async function createFactory(opts: FactoryOptions) {
     }
     blobCount = stage ? blobStage : 0
     blob(pos.x, pos.y, pos.z, 0.42)
+    if (!stage) peers.update(dt, time, blob)
 
     if (bitsAlive > 0) {
       bits.visible = true
@@ -3017,7 +3353,7 @@ export async function createFactory(opts: FactoryOptions) {
 
     outline.visible = false
     if (!stage) {
-      if (locked() && !paused) {
+      if ((locked() || isMobile) && !paused && view !== 2) {
         aimCenter()
         if (raycast(eye, dir, 6) && !doorAt.has(at(hit.x, hit.y, hit.z))) {
           outline.visible = true
@@ -3027,33 +3363,34 @@ export async function createFactory(opts: FactoryOptions) {
 
       for (let i = 0; i < GIFTS; i++) {
         beltPoint(time * BELT.speed + i * (BELT.length / GIFTS), point)
-        giftBodies.setMatrixAt(i, m4.makeTranslation(point.x, 8, point.z))
+        m4.makeTranslation(point.x, 8, point.z)
+        propBatch.setMatrixAt(giftBodyIds[i], m4)
+        propBatch.setMatrixAt(giftRibbonIds[i], m4)
         blob(point.x, 8, point.z, 0.55)
       }
-      giftBodies.instanceMatrix.needsUpdate = true
 
       q.setFromAxisAngle(UP, time * 2.4)
-      let cn = 0
       for (let i = 0; i < world.coins.length; i++) {
-        if (coinTaken[i]) continue
+        if (coinTaken[i]) {
+          propBatch.setVisibleAt(coinIds[i], false)
+          continue
+        }
         const c = world.coins[i]
-        coins.setMatrixAt(cn++, m4.compose(p.set(c[0], c[1] + Math.sin(time * 2 + i) * 0.12, c[2]), q, one))
+        propBatch.setMatrixAt(coinIds[i], m4.compose(p.set(c[0], c[1] + Math.sin(time * 2 + i) * 0.12, c[2]), q, one))
         blob(c[0], c[1], c[2], 0.28)
       }
-      coins.count = cn
-      if (cn > 0) coins.instanceMatrix.needsUpdate = true
 
       q.setFromAxisAngle(UP, -time * 1.6)
-      let rn = 0
       for (let i = 0; i < world.relics.length; i++) {
-        if (relicTaken[i]) continue
+        if (relicTaken[i]) {
+          propBatch.setVisibleAt(relicIds[i], false)
+          continue
+        }
         const c = world.relics[i]
         scale.setScalar(1.1 + Math.sin(time * 4 + i) * 0.08)
-        relics.setMatrixAt(rn++, m4.compose(p.set(c[0], c[1] + Math.sin(time * 1.7 + i) * 0.18, c[2]), q, scale))
+        propBatch.setMatrixAt(relicIds[i], m4.compose(p.set(c[0], c[1] + Math.sin(time * 1.7 + i) * 0.18, c[2]), q, scale))
         blob(c[0], c[1] - 0.6, c[2], 0.4)
       }
-      relics.count = rn
-      if (rn > 0) relics.instanceMatrix.needsUpdate = true
 
       for (let i = 0; i < slots.length; i++) {
         const rattling = doorRattle[i] > 0
@@ -3067,14 +3404,17 @@ export async function createFactory(opts: FactoryOptions) {
 
       fx.planeBoost = Math.max(0, fx.planeBoost - dt)
       planeAngle += dt * (fx.planeBoost > 0 ? 1.5 : 0.3)
-      plane.position.set(SPOT.center[0] + Math.cos(planeAngle) * 30, 43 + Math.sin(time * 0.8), SPOT.center[2] - Math.sin(planeAngle) * 30)
-      plane.rotation.y = planeAngle + Math.PI / 2
-      plane.rotation.x = -0.3
+      planePos.set(SPOT.center[0] + Math.cos(planeAngle) * 30, 43 + Math.sin(time * 0.8), SPOT.center[2] - Math.sin(planeAngle) * 30)
+      let planeRollX = -0.3
       if (fx.planeRoll >= 0) {
         fx.planeRoll += dt / 1.2
-        plane.rotation.x = -0.3 + Math.min(1, fx.planeRoll) * Math.PI * 2
+        planeRollX = -0.3 + Math.min(1, fx.planeRoll) * Math.PI * 2
         if (fx.planeRoll >= 1) fx.planeRoll = -1
       }
+      q.setFromAxisAngle(UP, planeAngle + Math.PI / 2)
+      q2.setFromAxisAngle(p.set(1, 0, 0), planeRollX)
+      q.multiply(q2)
+      propBatch.setMatrixAt(planeId, m4.compose(planePos, q, one))
 
       // Ibai asoma del regalo y sigue al jugador con la mirada
       fx.big = Math.max(0, fx.big - dt)
@@ -3085,13 +3425,14 @@ export async function createFactory(opts: FactoryOptions) {
         if (fx.jump >= 1) fx.jump = -1
       }
       const size = fx.big > 0 ? 4.5 : 1.7
-      ibai.scale.setScalar(ibai.scale.x + (size - ibai.scale.x) * Math.min(1, dt * 6))
-      ibai.position.set(SPOT.ibai[0], SPOT.ibai[1] + Math.sin(time * 1.6) * 0.25 + hop, SPOT.ibai[2])
-      ibai.rotation.y = Math.atan2(pos.x - SPOT.ibai[0], pos.z - SPOT.ibai[2])
+      ibaiScale += (size - ibaiScale) * Math.min(1, dt * 6)
+      q.setFromAxisAngle(UP, Math.atan2(pos.x - SPOT.ibai[0], pos.z - SPOT.ibai[2]))
+      propBatch.setMatrixAt(ibaiId, m4.compose(p.set(SPOT.ibai[0], SPOT.ibai[1] + Math.sin(time * 1.6) * 0.25 + hop, SPOT.ibai[2]), q, scale.setScalar(ibaiScale)))
 
-      dragon.position.set(SPOT.dragon[0], SPOT.dragon[1] + Math.sin(time * 1.4) * 0.3, SPOT.dragon[2])
-      dragon.rotation.y = Math.atan2(pos.x - SPOT.dragon[0], pos.z - SPOT.dragon[2])
-      blob(SPOT.dragon[0], dragon.position.y, SPOT.dragon[2], 1.5)
+      const dragonY = SPOT.dragon[1] + Math.sin(time * 1.4) * 0.3
+      q.setFromAxisAngle(UP, Math.atan2(pos.x - SPOT.dragon[0], pos.z - SPOT.dragon[2]))
+      propBatch.setMatrixAt(dragonId, m4.compose(p.set(SPOT.dragon[0], dragonY, SPOT.dragon[2]), q, scale.setScalar(1.5)))
+      blob(SPOT.dragon[0], dragonY, SPOT.dragon[2], 1.5)
 
       if (fx.gold > 0) {
         fx.gold -= dt
@@ -3151,6 +3492,30 @@ export async function createFactory(opts: FactoryOptions) {
 
   return {
     setState,
+    getPose(): LocalPose {
+      return {
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        yaw,
+        pitch,
+        speed: speedNow,
+        onGround,
+        inLiquid,
+        inStage: Boolean(stage),
+      }
+    },
+    syncPeers(list: Map<number, RemotePeer>) {
+      peers.syncPeers(list)
+    },
+    peerEmote(id: number, emote: EmoteId) {
+      peers.triggerEmote(id, emote)
+    },
+    playEmote(emote: EmoteId) {
+      if (stage) return
+      selfEmote = emote
+      selfEmoteTimer = 2.6
+    },
     setStats(value: PlayerStats) {
       stats = { ...value }
     },
@@ -3173,6 +3538,15 @@ export async function createFactory(opts: FactoryOptions) {
         timeScale = value
       },
       solid: (x: number, y: number, z: number) => isSolid(get(Math.floor(x), Math.floor(y), Math.floor(z))),
+      perf: () => ({
+        isMobile,
+        lowEnd,
+        dpr,
+        shadows,
+        shadowSize,
+        calls: renderer.info.render.calls,
+        triangles: renderer.info.render.triangles,
+      }),
       state: () => ({
         x: pos.x,
         y: pos.y,
@@ -3203,8 +3577,10 @@ export async function createFactory(opts: FactoryOptions) {
       paused = value
       if (!value) return
       keys.clear()
+      touches.clear()
       stick.x = stick.y = 0
-      jumpHeld = fireHeld = false
+      opts.onStick(0, 0, 0, 0, false)
+      jumpHeld = fireHeld = actionHeld = false
     },
     play() {
       paused = false
@@ -3215,6 +3591,17 @@ export async function createFactory(opts: FactoryOptions) {
     },
     jump(value: boolean) {
       jumpHeld = value
+    },
+    action(value: boolean) {
+      actionHeld = value
+      if (!value || paused || warp > 0 || flying()) return
+      hubRepeat = 0.32
+      aimCenter()
+      act(stage ? false : placing, 6)
+    },
+    lookBy(dx: number, dy: number) {
+      if (paused || warp > 0) return
+      look(dx, dy, 0.0055)
     },
     special() {
       if (!stage || paused) return
@@ -3263,13 +3650,11 @@ export async function createFactory(opts: FactoryOptions) {
       for (const chunk of stageChunks) chunk?.geometry.dispose()
       liquid?.geometry.dispose()
       disposeModels(models)
+      peers.dispose()
       for (const item of disposables) item.dispose()
       doorBatch.dispose()
-      giftBodies.dispose()
+      propBatch.dispose()
       blobs.dispose()
-      giftRibbons.dispose()
-      coins.dispose()
-      relics.dispose()
       renderer.dispose()
     },
   }

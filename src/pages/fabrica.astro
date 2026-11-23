@@ -42,7 +42,10 @@ const status = !experienceEnabled
 const title = `La fábrica de regalos en 3D | ${CAMPAIGN.name}`
 const description = `Explora la fábrica de regalos de ${CAMPAIGN.name}: un mundo de bloques con 24 puertas, una por cada día de diciembre.`
 const canonical = new URL('/fabrica', Astro.site).href
-const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
+const ogImage = new URL('/2026/og-fabrica.jpg', Astro.site).href
+const ogImageAlt = `Captura del juego 3D de La fábrica de regalos de ${CAMPAIGN.name} con el personaje entrando al mundo de bloques navideño`
+const hubWsUrl =
+  import.meta.env.PUBLIC_FACTORY_WS_URL || (import.meta.env.DEV ? 'ws://localhost:8787/ws' : '/factory-hub/ws')
 ---
 
 <!doctype html>
@@ -54,11 +57,23 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={CAMPAIGN.name} />
+    <meta property="og:locale" content="es_ES" />
     <meta property="og:url" content={canonical} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={ogImageAlt} />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@IbaiLlanos" />
+    <meta name="twitter:creator" content="@IbaiLlanos" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={ogImageAlt} />
     <meta name="theme-color" content="#06143a" />
     <link rel="preload" href="/fonts/press-start.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
     <link rel="icon" type="image/svg+xml" href="/2026/ibai.svg" />
@@ -70,6 +85,7 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
       id="factory"
       class="factory is-paused"
       data-days={JSON.stringify(days)}
+      data-ws-url={hubWsUrl}
     >
       <canvas
         class="factory-canvas"
@@ -84,13 +100,20 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
         <ul class="stats">
           <li><span class="icon icon-door"></span><span data-progress>0</span>/{CAMPAIGN.totalDays}</li>
           <li><span class="icon icon-coin"></span><span data-coins>0/0</span></li>
-          <li><span class="icon icon-star"></span><span data-stars>0</span></li>
-          <li class="level">Nv <span data-level>1</span><b data-points hidden></b></li>
+          <li class="stat-stars"><span class="icon icon-star"></span><span data-stars>0</span></li>
+          <li class="level stat-level">Nv <span data-level>1</span><b data-points hidden></b></li>
           <li data-secrets hidden></li>
+          <li class="online-stat" data-online-wrap>
+            <button type="button" class="online-pill" data-room-open aria-label="Abrir sala multijugador">
+              <i class="online-dot" data-online-dot></i>
+              <span data-online-text>Solo</span>
+            </button>
+          </li>
         </ul>
       </div>
 
       <div class="hud hud-tools">
+        <button type="button" class="pixel-btn" data-room-open>Sala</button>
         <button type="button" class="pixel-btn" data-mute aria-pressed="true">Sin sonido</button>
         <button type="button" class="pixel-btn" data-view aria-pressed="false">Cámara</button>
         <button type="button" class="pixel-btn" data-help>Pausa</button>
@@ -102,13 +125,32 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
       <span class="stick" aria-hidden="true"><i></i></span>
 
       <div class="hud hud-pad">
-        <button type="button" class="pixel-btn" data-mode aria-pressed="false">Picar</button>
-        <button type="button" class="pixel-btn pad-special" data-special>Giro</button>
-        <button type="button" class="pixel-btn pad-jump" data-jump>Saltar</button>
+        <button type="button" class="pixel-btn pad-mode" data-mode aria-pressed="false">Picar</button>
+        <button type="button" class="pixel-btn pad-circle pad-special" data-special>Giro</button>
+        <div class="pad-row">
+          <button type="button" class="pixel-btn pad-circle pad-action" data-action>Picar</button>
+          <button type="button" class="pixel-btn pad-circle pad-jump" data-jump>Saltar</button>
+        </div>
+      </div>
+
+      <div class="hud hud-emotes-touch" data-emotes-wrap>
+        <button type="button" class="pixel-btn emote-toggle" data-emote-toggle aria-expanded="false">Emotes</button>
+        <div class="emotes-tray" data-emotes-tray>
+          <button type="button" class="pixel-btn emote-btn" data-emote="wave">Saludar</button>
+          <button type="button" class="pixel-btn emote-btn" data-emote="dance">Bailar</button>
+          <button type="button" class="pixel-btn emote-btn" data-emote="celebrate">Festejar</button>
+          <button type="button" class="pixel-btn emote-btn" data-emote="gg">GG</button>
+        </div>
       </div>
 
       <div class="hud hud-bottom">
         <p class="hearts" data-hearts aria-label="Vidas"></p>
+        <div class="emotes" data-emotes aria-label="Emotes rápidos">
+          <button type="button" class="pixel-btn emote-btn" data-emote="wave" title="Saludar (Z)">Saludar <kbd>Z</kbd></button>
+          <button type="button" class="pixel-btn emote-btn" data-emote="dance" title="Bailar (X)">Bailar <kbd>X</kbd></button>
+          <button type="button" class="pixel-btn emote-btn" data-emote="celebrate" title="Festejar (C)">Festejar <kbd>C</kbd></button>
+          <button type="button" class="pixel-btn emote-btn" data-emote="gg" title="GG (G)">GG <kbd>G</kbd></button>
+        </div>
         <ol class="hotbar" aria-label="Bloques"></ol>
       </div>
 
@@ -167,13 +209,20 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
         <p class="doors-hint">Elige una puerta para aparecer delante de ella.</p>
         <button type="button" class="pixel-btn pixel-btn--main" data-play>Jugar</button>
         <button type="button" class="pixel-btn" data-levelup hidden></button>
+        <div class="start-tools">
+          <button type="button" class="pixel-btn" data-room-open>Sala</button>
+          <button type="button" class="pixel-btn" data-mute aria-pressed="true">Sin sonido</button>
+          <button type="button" class="pixel-btn" data-reset>Reiniciar</button>
+          <button type="button" class="pixel-btn" data-leave>Abandonar</button>
+        </div>
         <ul class="controls controls-desktop">
           <li><kbd>WASD</kbd> moverte · <kbd>Espacio</kbd> saltar</li>
           <li><kbd>Clic</kbd> acción · <kbd>Clic derecho</kbd> especial</li>
-          <li><kbd>V</kbd> cámara en tercera persona</li>
+          <li><kbd>V</kbd> cámara en tercera persona · <kbd>Z/X/C/G</kbd> emotes</li>
         </ul>
         <ul class="controls controls-touch">
-          <li>Izquierda: andar · Derecha: mirar · Toca: acción</li>
+          <li>Izquierda: andar · Derecha: mirar</li>
+          <li>Toca bloques o puertas · Mantén Atacar para apuntar y disparar</li>
         </ul>
         <p class="build" data-build></p>
       </section>
@@ -222,6 +271,40 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
           <p class="panel-note">{NOTICES.gamesAreOptional}</p>
         </div>
       </aside>
+
+      <section class="room-modal" role="dialog" aria-labelledby="room-title" hidden>
+        <button type="button" class="panel-close" data-room-close aria-label="Cerrar">×</button>
+        <h2 id="room-title">Hub multijugador</h2>
+        <p class="room-status" data-room-status>Desconectado · Modo en solitario</p>
+        <form class="room-form" data-room-form>
+          <p class="room-alias" data-room-alias hidden>Tu apodo aleatorio: <strong data-room-self-name></strong></p>
+          <div class="room-field">
+            <span>Color de bufanda</span>
+            <div class="room-colors" data-room-colors role="radiogroup" aria-label="Color de jugador"></div>
+          </div>
+          <label class="room-field">
+            <span>Sala privada (opcional)</span>
+            <div class="room-code-row">
+              <input
+                type="text"
+                maxlength="12"
+                autocomplete="off"
+                placeholder="Vacío = sala pública"
+                data-room-code
+              />
+              <button type="button" class="pixel-btn" data-room-random title="Generar código privado">Crear</button>
+            </div>
+          </label>
+          <div class="room-actions">
+            <button type="submit" class="pixel-btn pixel-btn--main" data-room-connect>Conectar</button>
+            <button type="button" class="pixel-btn" data-room-copy hidden>Copiar enlace</button>
+            <button type="button" class="pixel-btn" data-room-disconnect hidden>Salir de la sala</button>
+          </div>
+          <p class="room-hint">
+            Solo se ven los avatares, nombres y emotes en la fábrica. Tus bloques, puertas y fases siguen siendo privados.
+          </p>
+        </form>
+      </section>
 
       <p class="toast" role="status" aria-live="polite"></p>
     </main>
@@ -401,15 +484,41 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
     clip-path: polygon(50% 0, 63% 35%, 100% 38%, 71% 60%, 82% 100%, 50% 76%, 18% 100%, 29% 60%, 0 38%, 37% 35%);
     box-shadow: none;
   }
-  .pad-special {
-    width: 64px;
-    height: 64px;
+  .pad-circle {
+    padding: 0;
     border-radius: 50%;
+    text-align: center;
+    line-height: 1.2;
+    touch-action: none;
+  }
+  .pad-special {
+    width: 58px;
+    height: 58px;
     font-size: 8px;
+    background: #3d5285e0;
   }
   .pad-special.is-cooling {
-    background: #2a3350;
+    background: #2a3350d9;
     color: #8496bd;
+  }
+  .pad-action {
+    width: 66px;
+    height: 66px;
+    font-size: 7px;
+    background: #b84a39e0;
+  }
+  .pad-action.is-held {
+    background: #d95d48;
+  }
+  .pad-mode {
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 8px;
+  }
+  .pad-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
   }
   .factory:not(.in-stage) [data-special] {
     display: none;
@@ -440,6 +549,7 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
   .is-flying .crosshair,
   .is-flying .stick,
   .is-flying [data-jump],
+  .is-flying [data-action],
   .is-flying [data-view] {
     display: none;
   }
@@ -455,9 +565,13 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
     border-radius: 50%;
     background: #0003;
     pointer-events: none;
+    transition: border-color 0.12s ease;
   }
   .stick.is-active {
     display: block;
+  }
+  .stick.is-sprint {
+    border-color: var(--brand-accent);
   }
   .stick i {
     position: absolute;
@@ -472,18 +586,54 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
 
   .hud-pad {
     right: max(12px, env(safe-area-inset-right));
-    bottom: 78px;
+    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 64px);
     flex-direction: column;
     align-items: flex-end;
-    gap: 12px;
+    gap: 10px;
   }
   .pad-jump {
-    width: 76px;
-    height: 76px;
-    border-radius: 50%;
+    width: 68px;
+    height: 68px;
+    font-size: 8px;
+    background: #5b6b8fe0;
   }
-  .is-paused .hud-pad {
+  .is-paused .hud-pad,
+  .is-paused .hud-emotes-touch,
+  .in-stage .hud-emotes-touch {
     display: none;
+  }
+  .hud-emotes-touch {
+    left: max(12px, env(safe-area-inset-left));
+    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 64px);
+    display: none;
+    flex-direction: column-reverse;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .emote-toggle {
+    min-height: 38px;
+    padding: 6px 10px;
+    font-size: 8px;
+    background: #1b2f63d9;
+  }
+  .emotes-tray {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .hud-emotes-touch.is-open .emotes-tray {
+    display: flex;
+  }
+  .start-tools {
+    display: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  .start-tools .pixel-btn {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 8px;
   }
 
   .hud-bottom {
@@ -549,20 +699,22 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
     position: absolute;
     top: 50%;
     left: 50%;
+    z-index: 15;
     display: none;
     gap: 14px;
     justify-items: center;
     width: min(520px, calc(100% - 24px));
-    max-height: calc(100% - 120px);
-    padding: 22px 18px;
+    max-height: calc(100dvh - 84px);
+    padding: 20px 16px;
     border: 3px solid #000;
     background: #0b1d3eee;
     box-shadow:
       inset 3px 3px 0 #ffffff33,
       inset -3px -3px 0 #0008;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     text-align: center;
-    translate: -50% -56%;
+    translate: -50% -50%;
   }
   .is-ready.is-paused:not(.has-panel) .start {
     display: grid;
@@ -790,9 +942,16 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
     .controls-touch {
       display: grid;
     }
+    .emotes {
+      display: none;
+    }
+    .factory.is-ready:not(.is-paused):not(.in-stage) .hud-emotes-touch {
+      display: flex;
+    }
   }
   @media (pointer: fine) and (hover: hover) {
-    .hud-pad {
+    .hud-pad,
+    .hud-emotes-touch {
       display: none;
     }
   }
@@ -956,7 +1115,8 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
     font-weight: normal;
   }
   .has-result .start,
-  .has-levelup .start {
+  .has-levelup .start,
+  .has-room .start {
     display: none !important;
   }
   .stats .level b {
@@ -1329,33 +1489,81 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
     visibility: visible;
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: 760px), (max-height: 520px) and (pointer: coarse) {
+    .hud-head {
+      flex-wrap: nowrap;
+      gap: 6px;
+      max-width: calc(100% - 136px);
+    }
     .hud-head h1 {
       display: none;
     }
-    .is-playing [data-mute],
-    .is-playing [data-leave] {
-      display: none;
+    .hud-head .pixel-btn,
+    .hud-tools .pixel-btn {
+      min-height: 36px;
+      padding: 6px 8px;
+      font-size: 8px;
     }
-    .stage-hud {
-      top: calc(max(10px, env(safe-area-inset-top)) + 104px);
+    .stats {
+      gap: 7px;
+      padding: 5px 7px;
+      font-size: 8px;
+      white-space: nowrap;
+    }
+    .stats li {
+      gap: 4px;
     }
     .hud-tools {
+      top: max(10px, env(safe-area-inset-top));
+      right: max(10px, env(safe-area-inset-right));
+      flex-direction: row;
+      gap: 6px;
+    }
+    .hud-tools [data-room-open],
+    .hud-tools [data-mute],
+    .hud-tools [data-reset],
+    .hud-tools [data-leave] {
+      display: none;
+    }
+    .is-paused .hud-tools {
+      display: none;
+    }
+    .start-tools {
+      display: flex;
+    }
+    .stage-hud {
       top: calc(max(10px, env(safe-area-inset-top)) + 48px);
-      flex-direction: column;
-      align-items: flex-end;
+    }
+    .stage-card {
+      top: calc(max(10px, env(safe-area-inset-top)) + 108px);
+      bottom: auto;
+      padding: 12px 14px;
+    }
+    .stage-card h2 {
+      font-size: 13px;
+    }
+    .toast {
+      top: calc(max(10px, env(safe-area-inset-top)) + 52px);
+      z-index: 25;
+      font-size: 9px;
+      padding: 8px 12px;
+    }
+    .in-stage .toast {
+      top: calc(max(10px, env(safe-area-inset-top)) + 112px);
     }
     .panel {
       top: auto;
       right: 0;
       bottom: 0;
       left: 0;
+      z-index: 20;
       grid-template-columns: 72px 1fr;
       align-items: start;
       width: auto;
-      max-height: 62%;
+      max-height: 70dvh;
       padding: 16px 16px max(16px, env(safe-area-inset-bottom));
       overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       font-size: 13px;
       translate: none;
     }
@@ -1366,12 +1574,252 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
       display: none;
     }
   }
+  @media (max-width: 460px) {
+    .hud-head {
+      gap: 4px;
+      max-width: calc(100% - 126px);
+    }
+    .hud-head .pixel-btn,
+    .hud-tools .pixel-btn {
+      min-height: 34px;
+      padding: 5px 6px;
+      font-size: 7.5px;
+    }
+    .stats {
+      gap: 5px;
+      padding: 4px 6px;
+      font-size: 7.5px;
+    }
+    .online-pill [data-online-text] {
+      max-width: 54px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stats .stat-stars,
+    .stats .stat-level,
+    .stats [data-secrets] {
+      display: none;
+    }
+  }
+  @media (max-height: 520px) and (pointer: coarse) {
+    .hud-pad {
+      bottom: max(10px, env(safe-area-inset-bottom));
+      gap: 8px;
+    }
+    .hud-emotes-touch {
+      bottom: max(10px, env(safe-area-inset-bottom));
+    }
+    .pad-jump {
+      width: 62px;
+      height: 62px;
+    }
+    .pad-action {
+      width: 58px;
+      height: 58px;
+    }
+    .pad-special {
+      width: 52px;
+      height: 52px;
+    }
+    .start {
+      gap: 8px;
+      max-height: calc(100dvh - 20px);
+      padding: 12px 14px;
+    }
+    .start h2 {
+      font-size: 12px;
+    }
+    .doors {
+      grid-template-columns: repeat(8, 1fr);
+      gap: 4px;
+      max-width: 440px;
+    }
+    .door {
+      aspect-ratio: 1 / 1;
+    }
+    .levelup {
+      gap: 8px;
+      padding: 14px;
+    }
+    .levelup .pixel-btn {
+      min-height: 62px;
+      gap: 4px;
+    }
+  }
+
+  .online-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .online-dot {
+    width: 8px;
+    height: 8px;
+    background: #6c7a9c;
+    box-shadow: 0 0 0 2px #000;
+  }
+  .online-dot.is-online {
+    background: #4ade80;
+  }
+  .online-dot.is-connecting {
+    background: #f8b132;
+  }
+
+  .emotes {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .factory.in-stage .emotes,
+  .factory.is-paused .emotes {
+    display: none;
+  }
+  .emote-btn {
+    padding: 5px 8px;
+    font-size: 8px;
+    background: #1b2f63d9;
+  }
+  .emote-btn kbd {
+    margin-left: 4px;
+    padding: 1px 3px;
+    background: #0008;
+    color: #ffd24a;
+  }
+  @media (pointer: coarse), (hover: none) {
+    .emotes {
+      display: none;
+    }
+    .emote-btn kbd {
+      display: none;
+    }
+  }
+
+  .room-modal {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 30;
+    width: min(420px, calc(100% - 24px));
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 20px;
+    border: 4px solid #000;
+    background: #10204af2;
+    box-shadow:
+      inset 4px 4px 0 #3a5ca888,
+      inset -4px -4px 0 #050b1f,
+      0 14px 40px #000c;
+    translate: -50% -50%;
+  }
+  .room-modal h2 {
+    margin: 0 28px 8px 0;
+    font-size: 13px;
+    color: #ffd24a;
+  }
+  .room-status {
+    margin: 0 0 14px;
+    color: #b7c8ee;
+    font-size: 9px;
+  }
+  .room-alias {
+    margin: 0;
+    padding: 8px 10px;
+    border: 3px solid #000;
+    background: #071230;
+    color: #b7c8ee;
+    font-size: 9px;
+  }
+  .room-alias strong {
+    color: #ffd24a;
+  }
+  .room-form {
+    display: grid;
+    gap: 12px;
+  }
+  .room-field {
+    display: grid;
+    gap: 6px;
+    font-size: 9px;
+  }
+  .room-field input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 10px;
+    border: 3px solid #000;
+    background: #071230;
+    color: #fff;
+    font: inherit;
+    font-size: 10px;
+  }
+  .room-code-row {
+    display: flex;
+    gap: 8px;
+  }
+  .room-colors {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .room-swatch {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 3px solid #000;
+    cursor: pointer;
+    box-shadow: inset 2px 2px 0 #ffffff55;
+  }
+  .room-swatch[aria-checked='true'] {
+    outline: 3px solid #ffd24a;
+    outline-offset: 2px;
+  }
+  @media (pointer: coarse), (hover: none) {
+    .room-field input {
+      font-size: 16px;
+    }
+    .room-swatch {
+      width: 34px;
+      height: 34px;
+    }
+  }
+  .room-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .room-actions .pixel-btn--main {
+    min-height: 38px;
+    font-size: 10px;
+  }
+  .room-hint {
+    margin: 2px 0 0;
+    color: #93a7d6;
+    font-size: 8px;
+    line-height: 1.7;
+  }
 </style>
 
 <script>
   import type { DoorState, Factory, HotbarItem, SecretId, StageEvent, StageHud } from '@/factory/engine'
   import { createAudio, type Sfx } from '@/factory/audio'
   import { RELIC_COUNT, SPEED_STEP, STAT_IDS, STAT_MAX, STRENGTH_STEP, shieldTime, type PlayerStats, type StatId } from '@/factory/stats'
+  import {
+    createFactoryHubClient,
+    EMOTES,
+    PEER_COLORS,
+    type EmoteId,
+    type FactoryHubClient,
+    type HubState,
+  } from '@/factory/multiplayer'
 
   interface Day {
     day: number
@@ -1387,6 +1835,7 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
   const SOUND_KEY = 'fabrica:sonido'
   const LEVELS_KEY = 'fabrica:niveles'
   const RELICS_KEY = 'fabrica:reliquias'
+  const HUB_KEY = 'fabrica:hub'
   const SECRETS: Record<SecretId, string> = {
     plane: 'Envío exprés: el avión acelera el reparto',
     vat: 'Baño de chocolate: has llegado a la cuba',
@@ -1448,7 +1897,10 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
   const card = $('.stage-card')
   const hurt = $('.hurt')
   const modeButton = $('[data-mode]')
+  const actionButton = $('[data-action]')
   const specialButton = $('[data-special]')
+  const emotesWrap = $('[data-emotes-wrap]')
+  const emoteToggle = $('[data-emote-toggle]')
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
   const touch = matchMedia('(pointer: coarse), (hover: none)').matches
   let factory: Factory | null = null
@@ -1513,10 +1965,11 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
   }
 
   const audio = createAudio(readJson<string>(SOUND_KEY, 'off') !== 'on')
-  const muteButton = $('[data-mute]')
   const paintMute = () => {
-    muteButton.textContent = audio.muted ? 'Sin sonido' : 'Sonido'
-    muteButton.setAttribute('aria-pressed', String(audio.muted))
+    for (const btn of root.querySelectorAll<HTMLElement>('[data-mute]')) {
+      btn.textContent = audio.muted ? 'Sin sonido' : 'Sonido'
+      btn.setAttribute('aria-pressed', String(audio.muted))
+    }
   }
   paintMute()
   document.addEventListener('visibilitychange', () => audio.setActive(!document.hidden))
@@ -1529,19 +1982,29 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
     if (sound) audio.play(sound)
   }
 
+  const closeEmotes = () => {
+    emotesWrap.classList.remove('is-open')
+    emoteToggle.setAttribute('aria-expanded', 'false')
+  }
   const setPaused = (paused: boolean) => {
     root.classList.toggle('is-paused', paused)
     root.classList.toggle('is-playing', !paused)
+    if (paused) closeEmotes()
     factory?.setPaused(paused)
   }
   const resume = () => {
     setPaused(false)
     factory?.play()
   }
+  const syncActionLabel = (weapon?: string) => {
+    if (stageDay) actionButton.textContent = weapon === 'snow' ? 'Disparo' : 'Atacar'
+    else actionButton.textContent = placing ? 'Poner' : 'Picar'
+  }
   const setPlacing = (value: boolean) => {
     placing = value
     modeButton.textContent = value ? 'Poner' : 'Picar'
     modeButton.setAttribute('aria-pressed', String(value))
+    syncActionLabel()
     factory?.setPlacing(value)
   }
 
@@ -1945,6 +2408,7 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
       openIris()
       audio.setTrack(event.boss ? 'boss' : 'stage', event.day)
       specialButton.textContent = event.weapon === 'ship' ? 'Bomba' : event.weapon === 'snow' ? 'Bola XL' : 'Giro'
+      syncActionLabel(event.weapon)
       $('[data-card-day]').textContent = `Casilla ${event.day}`
       $('[data-card-title]').textContent = event.title
       $('[data-card-intro]').textContent = event.intro
@@ -1989,6 +2453,7 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
       stageDay = 0
       root.classList.remove('in-stage', 'is-flying')
       card.classList.remove('is-visible')
+      syncActionLabel()
       audio.setTrack('hub')
     }
   }
@@ -2047,27 +2512,224 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
       if (!sure) return
       factory?.wipe()
       location.reload()
+    } else if ('roomOpen' in data) {
+      openRoomModal()
+    } else if ('roomClose' in data) {
+      closeRoomModal()
+    } else if ('roomRandom' in data) {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+      let code = ''
+      for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)]
+      roomCodeInput.value = code
+      roomCodeInput.focus()
+    } else if ('roomCopy' in data) {
+      const state = hub?.getState()
+      const url = new URL(location.href)
+      if (state && !state.isPublic) url.searchParams.set('sala', state.label)
+      else url.searchParams.delete('sala')
+      navigator.clipboard?.writeText(url.toString()).then(
+        () => say('Enlace de la sala copiado', 'checkpoint'),
+        () => say(url.toString())
+      )
+    } else if ('roomDisconnect' in data) {
+      hubPrefs.enabled = false
+      saveJson(HUB_KEY, hubPrefs)
+      hub?.disconnect()
+      say('Has salido del hub multijugador')
+    } else if ('emoteToggle' in data) {
+      const open = emotesWrap.classList.toggle('is-open')
+      emoteToggle.setAttribute('aria-expanded', String(open))
+    } else if (data.emote) {
+      closeEmotes()
+      triggerEmote(data.emote as EmoteId)
     }
   })
   root.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !panel.hidden) closePanel()
+    if (event.key === 'Escape' && !roomModal.hidden) closeRoomModal()
+  })
+
+  // Hub social multijugador (Nivel 1: avatares, nombres aleatorios, colores, emotes y salas)
+  const roomModal = $('.room-modal')
+  const roomForm = $<HTMLFormElement>('[data-room-form]')
+  const roomAlias = $('[data-room-alias]')
+  const roomSelfName = $('[data-room-self-name]')
+  const roomCodeInput = $<HTMLInputElement>('[data-room-code]')
+  const roomColorsBox = $('[data-room-colors]')
+  const roomStatusText = $('[data-room-status]')
+  const roomCopyBtn = $('[data-room-copy]')
+  const roomDisconnectBtn = $('[data-room-disconnect]')
+  const onlineDot = $('[data-online-dot]')
+  const onlineText = $('[data-online-text]')
+
+  const params = new URLSearchParams(location.search)
+  const urlRoom = (params.get('sala') ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)
+  const wsUrl = params.get('ws') || root.dataset.wsUrl || ''
+
+  const savedHub = readJson<{ color?: number; room?: string; enabled?: boolean }>(HUB_KEY, {})
+  const hubPrefs = {
+    color: Number.isInteger(savedHub.color) && savedHub.color! >= 0 && savedHub.color! < PEER_COLORS.length
+      ? savedHub.color!
+      : Math.floor(Math.random() * PEER_COLORS.length),
+    room: urlRoom || (savedHub.room ?? ''),
+    enabled: urlRoom ? true : (savedHub.enabled ?? Boolean(wsUrl)),
+  }
+  let selectedColor = hubPrefs.color
+  let hub: FactoryHubClient | null = null
+  let lastEmoteAt = 0
+
+  const renderColorSwatches = () => {
+    roomColorsBox.replaceChildren(
+      ...PEER_COLORS.map((c, idx) => {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'room-swatch'
+        btn.style.background = c.hex
+        btn.title = c.name
+        btn.setAttribute('role', 'radio')
+        btn.setAttribute('aria-label', c.name)
+        btn.setAttribute('aria-checked', String(idx === selectedColor))
+        btn.addEventListener('click', () => {
+          selectedColor = idx
+          renderColorSwatches()
+        })
+        return btn
+      })
+    )
+  }
+
+  const paintHubState = (state: HubState) => {
+    onlineDot.classList.toggle('is-online', state.status === 'online')
+    onlineDot.classList.toggle('is-connecting', state.status === 'connecting')
+    roomAlias.hidden = !state.selfName
+    if (state.selfName) roomSelfName.textContent = state.selfName
+    if (state.status === 'online') {
+      onlineText.textContent = state.isPublic ? `${state.count} online` : `${state.label} (${state.count})`
+      roomStatusText.textContent = `Conectado · ${state.label} · ${state.count}/${state.max} jugadores`
+      roomCopyBtn.hidden = false
+      roomDisconnectBtn.hidden = false
+    } else if (state.status === 'connecting') {
+      onlineText.textContent = 'Conectando…'
+      roomStatusText.textContent = 'Conectando con la sala…'
+      roomCopyBtn.hidden = true
+      roomDisconnectBtn.hidden = false
+    } else {
+      onlineText.textContent = 'Solo'
+      roomStatusText.textContent = wsUrl
+        ? `${state.label} · Modo en solitario`
+        : 'Servidor multijugador no configurado (modo en solitario)'
+      roomCopyBtn.hidden = true
+      roomDisconnectBtn.hidden = true
+    }
+  }
+
+  const openRoomModal = () => {
+    roomCodeInput.value = hubPrefs.room
+    selectedColor = hubPrefs.color
+    renderColorSwatches()
+    roomModal.hidden = false
+    root.classList.add('has-room')
+    setPaused(true)
+    factory?.release()
+  }
+
+  const closeRoomModal = () => {
+    roomModal.hidden = true
+    root.classList.remove('has-room')
+  }
+
+  const triggerEmote = (emote: EmoteId) => {
+    if (stageDay || !factory) return
+    const now = performance.now()
+    if (now - lastEmoteAt < 1100) return
+    lastEmoteAt = now
+    factory.playEmote(emote)
+    hub?.sendEmote(emote)
+    const meta = EMOTES.find((e) => e.id === emote)
+    if (meta) say(`${meta.label}: ${meta.badge}`)
+  }
+
+  roomForm.addEventListener('submit', (event) => {
+    event.preventDefault()
+    const cleanCode = roomCodeInput.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)
+    hubPrefs.color = selectedColor
+    hubPrefs.room = cleanCode
+    hubPrefs.enabled = true
+    saveJson(HUB_KEY, hubPrefs)
+    if (!wsUrl) {
+      say('Falta configurar PUBLIC_FACTORY_WS_URL o levantar bun run dev:hub')
+      return
+    }
+    hub?.connect({ room: cleanCode || 'public', color: selectedColor })
+    closeRoomModal()
+    resume()
+  })
+
+  window.addEventListener('keydown', (event) => {
+    if (event.repeat || stageDay || !roomModal.hidden || !panel.hidden || root.classList.contains('is-paused')) return
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
+    const key = event.code
+    if (key === 'KeyZ') triggerEmote('wave')
+    else if (key === 'KeyX') triggerEmote('dance')
+    else if (key === 'KeyC') triggerEmote('celebrate')
+    else if (key === 'KeyG') triggerEmote('gg')
   })
 
   const viewButton = $('[data-view]')
   viewButton.addEventListener('click', () => factory?.cycleView())
 
   const jumpButton = $('[data-jump]')
-  for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'pointerleave']) {
-    jumpButton.addEventListener(type, () => factory?.jump(type === 'pointerdown'))
+  jumpButton.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    try {
+      jumpButton.setPointerCapture(e.pointerId)
+    } catch {}
+    factory?.jump(true)
+  })
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
+    jumpButton.addEventListener(type, () => factory?.jump(false))
+  }
+
+  let actionPointer = -1
+  let actionLastX = 0
+  let actionLastY = 0
+  actionButton.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    audio.start()
+    actionPointer = e.pointerId
+    actionLastX = e.clientX
+    actionLastY = e.clientY
+    actionButton.classList.add('is-held')
+    try {
+      actionButton.setPointerCapture(e.pointerId)
+    } catch {}
+    factory?.action(true)
+  })
+  actionButton.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== actionPointer) return
+    const dx = e.clientX - actionLastX
+    const dy = e.clientY - actionLastY
+    actionLastX = e.clientX
+    actionLastY = e.clientY
+    if (Math.abs(dx) < 120 && Math.abs(dy) < 120) factory?.lookBy(dx, dy)
+  })
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
+    actionButton.addEventListener(type, (e) => {
+      if (e.pointerId !== actionPointer) return
+      actionPointer = -1
+      actionButton.classList.remove('is-held')
+      factory?.action(false)
+    })
   }
 
   // Sin teclado no hay código secreto: cinco toques al marcador encienden la fiesta
   let titleTaps = 0
-  $('.stats').addEventListener('click', () => {
+  $('.stats').addEventListener('click', (event) => {
+    if ((event.target as HTMLElement).closest('button')) return
     if (++titleTaps % 5 === 0) factory?.trigger('disco')
   })
 
-  const hour = Number(new URLSearchParams(location.search).get('hora') ?? NaN)
+  const hour = Number(params.get('hora') ?? NaN)
 
   const boot = async () => {
     try {
@@ -2098,6 +2760,7 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
         },
         onStick: (x, y, dx, dy, active) => {
           stick.classList.toggle('is-active', active)
+          stick.classList.toggle('is-sprint', active && -dy > 30 && Math.abs(dx) < 18)
           if (!active) return
           const rect = root.getBoundingClientRect()
           stick.style.translate = `${x - rect.left}px ${y - rect.top}px`
@@ -2105,7 +2768,19 @@ const ogImage = new URL('/2026/og-image.jpg', Astro.site).href
         },
       })
       root.classList.add('is-ready')
-      if (import.meta.env.DEV) Object.assign(window, { factory, audio, celebrate })
+      hub = createFactoryHubClient({
+        wsUrl,
+        getPose: () => factory?.getPose() ?? null,
+        onPeersChange: (peers) => factory?.syncPeers(peers),
+        onPeerEmote: (peer, emote) => factory?.peerEmote(peer.id, emote),
+        onStateChange: paintHubState,
+      })
+      paintHubState(hub.getState())
+      if (hubPrefs.enabled && wsUrl) {
+        hub.connect({ room: hubPrefs.room || 'public', color: hubPrefs.color })
+      }
+      window.addEventListener('pagehide', () => hub?.dispose())
+      if (import.meta.env.DEV) Object.assign(window, { factory, audio, celebrate, hub })
     } catch (error) {
       console.error(error)
       root.classList.add('no-webgl')
