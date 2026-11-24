@@ -6,9 +6,9 @@ import { getCampaignDay, isExperienceEnabled } from '@/utils/campaign'
 import { isAdmin } from '@/utils/admin'
 import { supabaseAdmin } from '@/supabase-admin'
 
-const { now, user } = Astro.locals
+const { now, user, unlockAllDoors } = Astro.locals
 const experienceEnabled = isExperienceEnabled(now)
-const currentDay = experienceEnabled ? getCampaignDay(now) : 0
+const currentDay = experienceEnabled ? getCampaignDay(now, unlockAllDoors) : 0
 
 // El premio se enseña a quien ya puede verlo en la casilla: calendario registrado o admin
 let canSeePrizes = isAdmin(user?.id)
@@ -192,6 +192,11 @@ const hubWsUrl =
       <section class="start" aria-labelledby="start-title">
         <h2 id="start-title" data-start-title>La fábrica de regalos</h2>
         <p>{status}</p>
+        {unlockAllDoors && (
+          <p class="unlock-banner">
+            Todas las puertas desbloqueadas · <a href="/fabrica?abrir=off">Desactivar</a>
+          </p>
+        )}
         <ol class="doors" aria-label="Puertas de la fábrica">
           {
             days.map(({ day }) => (
@@ -749,6 +754,13 @@ const hubWsUrl =
     font-size: 15px;
     font-weight: normal;
     line-height: 1.5;
+  }
+  .unlock-banner {
+    color: var(--brand-accent);
+  }
+  .unlock-banner a {
+    color: inherit;
+    text-decoration: underline;
   }
   .doors {
     display: grid;

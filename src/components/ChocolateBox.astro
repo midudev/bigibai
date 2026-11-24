@@ -1,7 +1,7 @@
 ---
 import { isDayUnlocked, isExperienceEnabled } from '@/utils/campaign'
 
-const { now } = Astro.locals
+const { now, unlockAllDoors } = Astro.locals
 const experienceEnabled = isExperienceEnabled(now)
 const chocolates = Array.from({ length: 24 }, (_, index) => index + 1)
 const chocolateLayers = Array.from({ length: 9 }, (_, index) => index)
@@ -31,7 +31,7 @@ const chocolateLayers = Array.from({ length: 9 }, (_, index) => index)
               <span
                 class:list={[
                   'chocolate-well',
-                  { 'is-locked': !experienceEnabled || !isDayUnlocked(day, now) },
+                  { 'is-locked': !experienceEnabled || !isDayUnlocked(day, now, unlockAllDoors) },
                 ]}
                 style={`--delay: ${(day % 4) * 35 + Math.floor((day - 1) / 4) * 25}ms; --chocolate-shape: url('/2026/chocolates/${day}.webp')`}
               >

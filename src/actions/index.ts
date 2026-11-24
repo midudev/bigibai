@@ -22,11 +22,16 @@ function getClientIp(ctx: ActionAPIContext): string {
 
 // Las mismas condiciones que la página de la casilla para mostrar el juego: la experiencia está
 // activa, alguna casilla con ese juego ya se ha abierto y el usuario ha validado algún calendario
-async function canPlayGame(userId: string, gameTypes: GameType[], now: Date): Promise<boolean> {
+async function canPlayGame(
+  userId: string,
+  gameTypes: GameType[],
+  now: Date,
+  unlockAll = false
+): Promise<boolean> {
   if (!isExperienceEnabled(now)) return false
 
   const isGameUnlocked = cells.some(
-    ({ day, gameType }) => gameTypes.includes(gameType) && isDayUnlocked(day, now)
+    ({ day, gameType }) => gameTypes.includes(gameType) && isDayUnlocked(day, now, unlockAll)
   )
   if (!isGameUnlocked) return false
 
@@ -456,7 +461,10 @@ export const server = {
         })
       }
 
-      if (!isAdmin(user.id) && !(await canPlayGame(user.id, gameTypes, ctx.locals.now))) {
+      if (
+        !isAdmin(user.id) &&
+        !(await canPlayGame(user.id, gameTypes, ctx.locals.now, ctx.locals.unlockAllDoors))
+      ) {
         throw new ActionError({
           code: 'FORBIDDEN',
           message: 'Este juego todavía no está disponible',

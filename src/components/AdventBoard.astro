@@ -2,9 +2,9 @@
 import { CAMPAIGN } from '@/data/campaign'
 import { getCampaignDay, isDayUnlocked, isExperienceEnabled } from '@/utils/campaign'
 
-const { now } = Astro.locals
+const { now, unlockAllDoors } = Astro.locals
 const experienceEnabled = isExperienceEnabled(now)
-const currentDay = getCampaignDay(now)
+const currentDay = getCampaignDay(now, unlockAllDoors)
 
 // Como en el calendario de verdad, los números van salteados sobre la ilustración
 const layout = [
@@ -62,7 +62,7 @@ const doors = layout
         style={`--door-w: ${DOOR_W}%; --door-h: ${DOOR_H}%; --art-w: ${10000 / DOOR_W}%; --art-h: ${10000 / DOOR_H}%`}
       >
         {doors.map(({ day, style }) => {
-          const active = experienceEnabled && isDayUnlocked(day, now)
+          const active = experienceEnabled && isDayUnlocked(day, now, unlockAllDoors)
           const isToday = active && day === currentDay
           const Tag = active ? 'a' : 'button'
 

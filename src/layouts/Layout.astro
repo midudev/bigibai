@@ -8,7 +8,7 @@ import { ClientRouter } from 'astro:transitions'
 import AchievementNotification from '@/components/AchievementNotification.astro'
 import Tooltip from '@/components/ui/Tooltip.astro'
 import WinnersModal from '@/components/WinnersModal.astro'
-import { formatCampaignDateTime, getCampaignPhase } from '@/utils/campaign'
+import { getCampaignPhase } from '@/utils/campaign'
 
 const defaultTitle = `${CAMPAIGN.name} y la fábrica de regalos`
 const defaultDescription = `${CAMPAIGN.name} y la fábrica de regalos: el calendario de Adviento de Ibai con 24 chocolatinas, 24 premios en sorteo y un juego nuevo cada día de diciembre.`
@@ -29,7 +29,7 @@ let { title, description, participationCount, noindex = false } = Astro.props
 title ??= defaultTitle
 description ??= defaultDescription
 
-// Sin barra final ni query string (?fecha=...): una sola URL por página
+// Sin barra final ni query string (?abrir...): una sola URL por página
 const siteUrl = new URL('/', Astro.site).href
 const canonicalPath = Astro.url.pathname.replace(/(.)\/$/, '$1')
 const canonicalUrl = new URL(canonicalPath, Astro.site).href
@@ -82,7 +82,7 @@ const structuredData = {
 // `<` escapado para que ningún texto pueda cerrar el <script>
 const structuredDataJson = JSON.stringify(structuredData).replace(/</g, '\\u003c')
 
-const { now = new Date(), isSimulatedDate = false } = Astro.locals
+const { now = new Date(), unlockAllDoors = false } = Astro.locals
 const showWinnersModal = getCampaignPhase(now) === 'winners'
 ---
 
@@ -168,14 +168,14 @@ const showWinnersModal = getCampaignPhase(now) === 'winners'
     <AchievementNotification />
     <Tooltip />
     {showWinnersModal && <WinnersModal />}
-    {isSimulatedDate && (
+    {unlockAllDoors && (
       <div
         class="fixed bottom-3 left-1/2 z-10000 w-max max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-full bg-amber-400 px-4 py-2 text-center text-xs font-bold text-black shadow-lg"
         role="status"
       >
-        Fecha simulada: {formatCampaignDateTime(now)} ·{' '}
-        <a href="?fecha=off" class="underline" data-astro-reload>
-          Volver a la fecha real
+        Todas las puertas desbloqueadas ·{' '}
+        <a href="?abrir=off" class="underline" data-astro-reload>
+          Volver al calendario normal
         </a>
       </div>
     )}

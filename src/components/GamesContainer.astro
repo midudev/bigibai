@@ -9,8 +9,8 @@ interface Props {
   totalCoupons: number
 }
 const { totalCoupons } = Astro.props
-const { now } = Astro.locals
-const availableDays = isExperienceEnabled(now) ? getCampaignDay(now) : 0
+const { now, unlockAllDoors } = Astro.locals
+const availableDays = isExperienceEnabled(now) ? getCampaignDay(now, unlockAllDoors) : 0
 const days = Array.from({ length: availableDays }, (_, i) => i + 1)
 ---
 

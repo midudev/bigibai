@@ -20,9 +20,9 @@ interface Props {
 }
 
 const { isLoggedIn, participationCount } = Astro.props
-const { now } = Astro.locals
+const { now, unlockAllDoors } = Astro.locals
 const phase = getCampaignPhase(now)
-const currentDay = getCampaignDay(now)
+const currentDay = getCampaignDay(now, unlockAllDoors)
 const daysUntilFirstDoor = getDaysUntilUnlock(1, now)
 
 // Lo siguiente que va a pasar en el calendario: la cuenta atrás o las casillas ya abiertas

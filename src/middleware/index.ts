@@ -2,15 +2,14 @@ import { defineMiddleware, sequence } from 'astro:middleware'
 import type { APIContext } from 'astro'
 import type { JwtPayload } from '@supabase/supabase-js'
 import { createClient } from '@/supabase'
-import { isAdmin } from '@/utils/admin'
-import { parseSimulatedDate } from '@/utils/campaign'
 
 const protectedRoutes = ['/dashboard', '/admin']
 const redirectRoutes = ['/registro']
 const publicRoutes = ['/aviso-legal', '/bases-legales', '/politica-de-cookies', '/privacidad', '/api/auth/signin', '/api/auth/callback', '/api/auth/signout', '/video/reel-ibai.mp4']
 
-const SIMULATED_DATE_PARAM = 'fecha'
-const SIMULATED_DATE_COOKIE = 'fecha-simulada'
+const UNLOCK_DOORS_PARAM = 'abrir'
+const UNLOCK_DOORS_COOKIE = 'puertas-abiertas'
+const UNLOCK_OFF_VALUES = new Set(['0', 'false', 'off'])
 
 // www.bigibai.com (de `site` en astro.config.mjs). El dominio raíz redirige aquí
 const CANONICAL_HOST = new URL(import.meta.env.SITE).hostname
@@ -41,39 +40,26 @@ function shouldSkipAuth(pathname: string): boolean {
   return publicRoutes.includes(pathname)
 }
 
-// Los admins (y cualquiera en local) pueden simular la fecha con ?fecha=YYYY-MM-DD para probar
-// los desbloqueos. Se guarda en una cookie y se quita con ?fecha=off
-function canSimulateDate(userId?: string): boolean {
-  return import.meta.env.DEV || isAdmin(userId)
-}
-
-function resolveNow(context: APIContext, userId?: string) {
-  const realNow = { now: new Date(), isSimulatedDate: false }
-  if (!canSimulateDate(userId)) return realNow
-
-  const param = context.url.searchParams.get(SIMULATED_DATE_PARAM)
+// ?abrir desbloquea todas las puertas y se guarda en una cookie; ?abrir=off vuelve al modo normal
+function resolveUnlockAllDoors(context: APIContext): boolean {
+  const param = context.url.searchParams.get(UNLOCK_DOORS_PARAM)
 
   if (param !== null) {
-    const simulated = parseSimulatedDate(param)
-
-    if (!simulated) {
-      context.cookies.delete(SIMULATED_DATE_COOKIE, { path: '/' })
-      return realNow
+    if (UNLOCK_OFF_VALUES.has(param.toLowerCase())) {
+      context.cookies.delete(UNLOCK_DOORS_COOKIE, { path: '/' })
+      return false
     }
 
-    context.cookies.set(SIMULATED_DATE_COOKIE, param, {
+    context.cookies.set(UNLOCK_DOORS_COOKIE, '1', {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
       secure: !import.meta.env.DEV,
     })
-    return { now: simulated, isSimulatedDate: true }
+    return true
   }
 
-  const cookie = context.cookies.get(SIMULATED_DATE_COOKIE)?.value
-  const simulated = cookie ? parseSimulatedDate(cookie) : null
-
-  return simulated ? { now: simulated, isSimulatedDate: true } : realNow
+  return context.cookies.get(UNLOCK_DOORS_COOKIE)?.value === '1'
 }
 
 // La web solo ofrece enlace mágico y Google, pero la API de Supabase Auth también acepta altas con
@@ -131,9 +117,11 @@ const securityHeaders = defineMiddleware(async (context, next) => {
 const auth = defineMiddleware(async (context, next) => {
   const { pathname } = context.url
 
+  context.locals.now = new Date()
+  context.locals.unlockAllDoors = resolveUnlockAllDoors(context)
+
   // Skip auth check para rutas que no lo necesitan
   if (shouldSkipAuth(pathname)) {
-    Object.assign(context.locals, resolveNow(context))
     return next()
   }
 
@@ -168,7 +156,6 @@ const auth = defineMiddleware(async (context, next) => {
   }
 
   context.locals.user = user
-  Object.assign(context.locals, resolveNow(context, user?.id))
 
   return next()
 })

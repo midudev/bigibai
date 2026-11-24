@@ -236,9 +236,9 @@ const GAME_DATA: Record<number, DayConfig['gameData']> = {
 }
 
 // Se calcula en cada petición (no al cargar el módulo) para que cambie al pasar el día
-export function getDayDescription(day: number, now: Date): string {
+export function getDayDescription(day: number, now: Date, unlockAll = false): string {
   // Si el día ya está desbloqueado, descripción personalizada
-  return isDayUnlocked(day, now)
+  return isDayUnlocked(day, now, unlockAll)
     ? DESCRIPTIONS[day - 1]
     : `y ${getDaysUntilChristmas(now)} días para Navidad - Casilla ${day}/${CAMPAIGN.totalDays}`
 }

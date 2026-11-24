@@ -4,9 +4,9 @@ import { getCampaignDay, isExperienceEnabled } from '@/utils/campaign'
 import AdventBoard from '@/components/AdventBoard.astro'
 import Button from '@/components/Button.astro'
 import SectionHeading from '@/components/ui/SectionHeading.astro'
-const { now } = Astro.locals
+const { now, unlockAllDoors } = Astro.locals
 const experienceEnabled = isExperienceEnabled(now)
-const currentDay = getCampaignDay(now)
+const currentDay = getCampaignDay(now, unlockAllDoors)
 const openedDays = experienceEnabled ? currentDay : 0
 ---
 

@@ -63,21 +63,20 @@ const { gameType, gameData } = dayData
 const user = Astro.locals.user
 const isAuthenticated = !!user
 
-// Fecha de referencia del servidor (real o simulada con ?fecha=YYYY-MM-DD)
-const { now, isSimulatedDate } = Astro.locals
-const description = getDayDescription(paramDayNumber, now)
+const { now, unlockAllDoors } = Astro.locals
+const description = getDayDescription(paramDayNumber, now, unlockAllDoors)
 // Igual todo el año: no depende de la fecha ni desvela el premio
 const metaDescription = `Casilla ${paramDayNumber} del calendario de Adviento ${CAMPAIGN.name}: supera el reto del ${paramDayNumber} de diciembre, descubre tu chocolatina y el premio que se sortea ese día.`
 const phase = getCampaignPhase(now)
 const isRegistrationOpen = phase === 'registration'
 
-// Los admins ven todas las casillas, salvo cuando simulan una fecha para probar los desbloqueos
+// Los admins ven todas las casillas
 const userIsAdmin = isAdmin(user?.id)
-const canPreview = userIsAdmin && !isSimulatedDate
+const canPreview = userIsAdmin
 
 // La casilla es accesible desde las 00:00 (hora peninsular) de su día y mientras la experiencia siga activa
 const experienceEnabled = isExperienceEnabled(now)
-const isDayAccessible = isDayUnlocked(paramDayNumber, now)
+const isDayAccessible = isDayUnlocked(paramDayNumber, now, unlockAllDoors)
 
 const loginMessage = {
   upcoming: `El registro de calendarios ${CAMPAIGN.name} todavía no está abierto. ¡Muy pronto podrás participar!`,
@@ -126,7 +125,6 @@ if (user) {
         day={paramDayNumber}
         unlockAt={getDayUnlockDate(paramDayNumber).toISOString()}
         serverNow={now.toISOString()}
-        isSimulatedDate={isSimulatedDate}
       />
       <Button slot="actions" href="/#calendario" variant="secondary">
         Volver al calendario

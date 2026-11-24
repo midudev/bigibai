@@ -2,13 +2,12 @@
 interface Props {
   day: number
   title?: string
-  // Instante de desbloqueo y hora del servidor (real o simulada) en ISO
+  // Instante de desbloqueo y hora del servidor en ISO
   unlockAt: string
   serverNow: string
-  isSimulatedDate?: boolean
 }
 
-const { day, title, unlockAt, serverNow, isSimulatedDate = false } = Astro.props
+const { day, title, unlockAt, serverNow } = Astro.props
 ---
 
 <div class="countdown-panel" role="timer" aria-label={`Cuenta atrás para la casilla ${day}`}>
@@ -40,7 +39,7 @@ const { day, title, unlockAt, serverNow, isSimulatedDate = false } = Astro.props
   }
 </style>
 
-<script define:vars={{ unlockAt, serverNow, isSimulatedDate }}>
+<script define:vars={{ unlockAt, serverNow }}>
   const countdownElement = document.getElementById('countdown')
   const targetTime = new Date(unlockAt).getTime()
 
@@ -62,9 +61,8 @@ const { day, title, unlockAt, serverNow, isSimulatedDate = false } = Astro.props
       countdownElement.textContent = '00d 00h 00m 00s'
       clearInterval(interval)
 
-      // La casilla ya se ha desbloqueado: recargamos para que el servidor la sirva.
-      // Con fecha simulada el servidor no avanza, así que recargar volvería a la cuenta atrás
-      if (!isSimulatedDate) location.reload()
+      // La casilla ya se ha desbloqueado: recargamos para que el servidor la sirva
+      location.reload()
       return
     }
 

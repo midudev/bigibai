@@ -37,12 +37,6 @@ const timeFormatter = new Intl.DateTimeFormat('es-ES', {
   minute: '2-digit',
 })
 
-const dateTimeFormatter = new Intl.DateTimeFormat('es-ES', {
-  timeZone: CAMPAIGN.timeZone,
-  dateStyle: 'medium',
-  timeStyle: 'short',
-})
-
 /**
  * Descompone un instante en fecha y hora peninsular española
  */
@@ -77,7 +71,9 @@ export function zonedTimeToDate({ year, month, day, hour = 0, minute = 0, second
  * Último día del calendario desbloqueado (0 = ninguno).
  * Pasado el día 24 todos siguen disponibles mientras la experiencia esté activa.
  */
-export function getCampaignDay(now: Date): number {
+export function getCampaignDay(now: Date, unlockAll = false): number {
+  if (unlockAll) return CAMPAIGN.totalDays
+
   const { year, month, day } = getZonedParts(now)
 
   if (year < CAMPAIGN.year || (year === CAMPAIGN.year && month < 12)) return 0
@@ -86,8 +82,8 @@ export function getCampaignDay(now: Date): number {
   return Math.min(day, CAMPAIGN.totalDays)
 }
 
-export function isDayUnlocked(day: number, now: Date): boolean {
-  return day >= 1 && day <= getCampaignDay(now)
+export function isDayUnlocked(day: number, now: Date, unlockAll = false): boolean {
+  return day >= 1 && day <= getCampaignDay(now, unlockAll)
 }
 
 /**
@@ -133,30 +129,4 @@ export function formatCampaignDate(isoDate: string): string {
 
 export function formatCampaignTime(isoDate: string): string {
   return timeFormatter.format(new Date(isoDate))
-}
-
-export function formatCampaignDateTime(date: Date): string {
-  return dateTimeFormatter.format(date)
-}
-
-/**
- * Interpreta una fecha simulada en hora peninsular: YYYY-MM-DD o YYYY-MM-DDTHH:mm[:ss]
- */
-export function parseSimulatedDate(value: string): Date | null {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?$/)
-  if (!match) return null
-
-  const [year, month, day, hour = 0, minute = 0, second = 0] = match.slice(1).map((part) =>
-    part === undefined ? undefined : Number(part)
-  ) as number[]
-
-  const date = zonedTimeToDate({ year, month, day, hour, minute, second })
-  const zoned = getZonedParts(date)
-
-  // Descarta fechas imposibles (31 de febrero, 25:00...) que Date desbordaría al mes siguiente
-  if (zoned.year !== year || zoned.month !== month || zoned.day !== day || zoned.hour !== hour) {
-    return null
-  }
-
-  return date
 }
