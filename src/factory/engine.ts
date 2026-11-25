@@ -723,6 +723,17 @@ export async function createFactory(opts: FactoryOptions) {
   }
   // Rejilla activa: la fábrica o la fase que hay detrás de una puerta
   let blocks = hubBlocks
+  // Fase en curso (declarada antes de buildPortals para evitar TDZ al arrancar con puertas abiertas)
+  let stage: {
+    def: StageDef
+    run: StageRuntime
+    hud: StageHud
+    invuln: number
+    // Segundos que faltan para que vuelva el escudo
+    shield: number
+    check: Vector3
+    over: boolean
+  } | null = null
 
   const get = (x: number, y: number, z: number) =>
     x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D ? B.AIR : blocks[at(x, y, z)]
@@ -2329,16 +2340,6 @@ export async function createFactory(opts: FactoryOptions) {
   const give = (type: number, amount = 1) => inventory.set(type, (inventory.get(type) ?? 0) + amount)
 
   // Fase en curso
-  let stage: {
-    def: StageDef
-    run: StageRuntime
-    hud: StageHud
-    invuln: number
-    // Segundos que faltan para que vuelva el escudo
-    shield: number
-    check: Vector3
-    over: boolean
-  } | null = null
   let warp = 0
   let warpDay = 0
   // Fases de naves: vista cenital, sin gravedad y dentro del campo
