@@ -281,8 +281,8 @@ export class FactoryRoom {
 
     const sameIp = isPublic ? existing.filter(({ data }) => data.ip === ip).length : 0
     if (existing.length >= MAX_PLAYERS || sameIp >= MAX_PEERS_PER_IP) {
-      server.accept()
-      server.addEventListener('error', () => {})
+      // Con la API de hibernación, como los demás: el runtime gestiona el cierre
+      this.ctx.acceptWebSocket(server)
       const next = isPublic && shard < MAX_PUBLIC_SHARDS ? `hub-${shard + 1}` : null
       server.send(JSON.stringify({ t: 'full', room: roomId, next }))
       server.close(4001, 'Room full')
