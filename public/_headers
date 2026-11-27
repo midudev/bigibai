@@ -42,6 +42,9 @@ https://:version.:subdomain.workers.dev/*
 /:file.mp3
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
+/favicon.ico
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
 /chocolatinas/*
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
