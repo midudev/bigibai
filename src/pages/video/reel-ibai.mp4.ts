@@ -1,67 +1,48 @@
 import type { APIRoute } from 'astro'
 import { env } from 'cloudflare:workers'
 
-// Los estáticos responden 200 a las peticiones con Range y Safari no reproduce vídeo sin un 206
+// Los estáticos responden 200 a las peticiones con Range y Safari no reproduce vídeo sin un 206.
+// La Cache API sí responde 206 con el trozo pedido: el vídeo entero se guarda una vez por centro
+// de datos y el Worker no vuelve a leer los 15 MB en cada petición
 const SOURCE = '/2026/reel-ibai.mp4'
-const MAX_CHUNK = 4 * 1024 * 1024
-
-function parseRange(header: string, size: number): [number, number] | null | undefined {
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
-  if (!match || (!match[1] && !match[2])) return undefined
-
-  const start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]))
-  const end = match[1] && match[2] ? Math.min(Number(match[2]), size - 1) : size - 1
-  if (start > end || start >= size) return null
-  return [start, Math.min(end, start + MAX_CHUNK - 1)]
-}
-
-async function readRange(body: ReadableStream<Uint8Array>, start: number, end: number) {
-  const bytes = new Uint8Array(end - start + 1)
-  const reader = body.getReader()
-  let offset = 0
-  while (offset <= end) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const from = Math.max(start - offset, 0)
-    const to = Math.min(end - offset + 1, value.byteLength)
-    if (to > from) bytes.set(value.subarray(from, to), offset + from - start)
-    offset += value.byteLength
-  }
-  await reader.cancel()
-  return bytes
-}
+const MAX_AGE = 86400
+const FORWARDED_HEADERS = ['Range', 'If-None-Match', 'If-Modified-Since']
 
 function withVideoHeaders(response: Response) {
   const copy = new Response(response.body, response)
   copy.headers.set('Accept-Ranges', 'bytes')
-  copy.headers.set('Cache-Control', 'public, max-age=86400')
+  copy.headers.set('Cache-Control', `public, max-age=${MAX_AGE}`)
   return copy
 }
 
+async function storeInCache(cache: Cache, key: Request) {
+  const asset = await env.ASSETS.fetch(key)
+  if (asset.status !== 200 || !asset.body) return asset
+
+  const headers = new Headers({ 'Cache-Control': `public, max-age=${MAX_AGE}` })
+  for (const name of ['Content-Type', 'Content-Length', 'ETag', 'Last-Modified']) {
+    const value = asset.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+  await cache.put(key, new Response(asset.body, { headers }))
+  return null
+}
+
 export const GET: APIRoute = async ({ request, url }) => {
-  const range = request.headers.get('Range')
-  const asset = await env.ASSETS.fetch(new Request(new URL(SOURCE, url)))
-  const size = Number(asset.headers.get('Content-Length'))
-  if (!range || asset.status !== 200 || !asset.body || !size) {
-    return withVideoHeaders(asset)
+  const cache = caches.default
+  const key = new Request(new URL(SOURCE, url))
+  const lookup = new Request(key)
+  for (const name of FORWARDED_HEADERS) {
+    const value = request.headers.get(name)
+    if (value) lookup.headers.set(name, value)
   }
 
-  const bounds = parseRange(range, size)
-  if (bounds === undefined) return withVideoHeaders(asset)
-  if (bounds === null) {
-    await asset.body.cancel()
-    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
+  let response = await cache.match(lookup)
+  if (!response) {
+    const failed = await storeInCache(cache, key)
+    if (failed) return withVideoHeaders(failed)
+    response = await cache.match(lookup)
   }
 
-  const [start, end] = bounds
-  const response = new Response(await readRange(asset.body, start, end), {
-    status: 206,
-    headers: {
-      'Content-Type': 'video/mp4',
-      'Content-Range': `bytes ${start}-${end}/${size}`,
-    },
-  })
-  const etag = asset.headers.get('ETag')
-  if (etag) response.headers.set('ETag', etag)
-  return withVideoHeaders(response)
+  return withVideoHeaders(response ?? (await env.ASSETS.fetch(key)))
 }

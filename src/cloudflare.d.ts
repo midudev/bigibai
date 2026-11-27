@@ -12,3 +12,8 @@ declare module 'cloudflare:workers' {
     COUPON_USER_LIMITER: RateLimit
   }
 }
+
+// Cache API de Workers: `caches.default` es la caché de la zona
+interface CacheStorage {
+  readonly default: Cache
+}
