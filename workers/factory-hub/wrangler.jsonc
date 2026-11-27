@@ -14,6 +14,10 @@
     { "pattern": "www.bigibai.com/factory-hub/*", "zone_name": "bigibai.com" },
     { "pattern": "bigibai.com/factory-hub/*", "zone_name": "bigibai.com" }
   ],
+  // Conexiones nuevas por IP (src/index.ts). El namespace_id no puede repetirse en la cuenta (ver ../../wrangler.jsonc)
+  "ratelimits": [
+    { "name": "CONNECT_LIMITER", "namespace_id": "2026005", "simple": { "limit": 60, "period": 60 } }
+  ],
   "vars": {
     "ALLOWED_ORIGINS": "https://www.bigibai.com,https://bigibai.com"
   },

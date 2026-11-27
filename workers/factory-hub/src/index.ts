@@ -6,6 +6,11 @@ const MAX_PUBLIC_SHARDS = 64
 const MAX_COLOR = 7
 const EMOTE_COOLDOWN_MS = 1100
 const POSE_COOLDOWN_MS = 50
+const PROFILE_COOLDOWN_MS = 1000
+// El cliente manda 10 poses/s: por encima de esto es un script inundando la sala
+const MAX_MESSAGES_PER_SECOND = 40
+// Una misma IP no puede llenar una sala pública con bots; el resto de sus conexiones van a otra sala
+const MAX_PEERS_PER_IP = 4
 const VALID_EMOTES = new Set(['wave', 'dance', 'celebrate', 'gg'])
 
 // Nombres aleatorios generados solo en servidor (seguros para todos los públicos)
@@ -54,6 +59,7 @@ const NAME_ADJS = [
 // Tipos mínimos del runtime de Cloudflare Workers / Durable Objects para no exigir dependencias extra
 interface Env {
   FACTORY_ROOM: DurableObjectNamespace
+  CONNECT_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> }
   ALLOWED_ORIGINS?: string
 }
 
@@ -80,6 +86,7 @@ declare class WebSocketPair {
 
 interface PeerAttachment {
   id: number
+  ip: string
   name: string
   color: number
   x: number
@@ -91,6 +98,7 @@ interface PeerAttachment {
   flags: number
   lastPoseAt: number
   lastEmoteAt: number
+  lastProfileAt?: number
 }
 
 function randomSafeName(usedNames: Set<string>): string {
@@ -134,9 +142,10 @@ function parseRoom(raw: string | null): { id: string; label: string; isPublic: b
 }
 
 function isOriginAllowed(request: Request, env: Env): boolean {
-  const origin = request.headers.get('Origin')
-  if (!origin) return true
   if (!env.ALLOWED_ORIGINS) return true
+  // Los navegadores siempre mandan Origin al abrir un WebSocket
+  const origin = request.headers.get('Origin')
+  if (!origin) return false
   const allowed = env.ALLOWED_ORIGINS.split(',')
     .map((s) => s.trim())
     .filter(Boolean)
@@ -165,6 +174,12 @@ export default {
       return new Response('Expected WebSocket upgrade', { status: 426 })
     }
 
+    const ip = request.headers.get('cf-connecting-ip') || 'unknown'
+    const { success } = await env.CONNECT_LIMITER.limit({ key: ip })
+    if (!success) {
+      return new Response('Too many connections', { status: 429, headers: { 'retry-after': '60' } })
+    }
+
     const room = parseRoom(url.searchParams.get('room'))
     const stub = env.FACTORY_ROOM.get(env.FACTORY_ROOM.idFromName(room.id))
     const nextUrl = new URL(request.url)
@@ -172,6 +187,7 @@ export default {
     nextUrl.searchParams.set('roomLabel', room.label)
     nextUrl.searchParams.set('isPublic', room.isPublic ? '1' : '0')
     nextUrl.searchParams.set('shard', String(room.shard))
+    nextUrl.searchParams.set('ip', ip)
     return stub.fetch(new Request(nextUrl.toString(), request))
   },
 }
@@ -181,6 +197,7 @@ export class FactoryRoom {
   // Caché en memoria de los peers activos para evitar deserialize/serializeAttachment en cada pose (10 Hz)
   private peersCache = new Map<HibernatingWebSocket, PeerAttachment>()
   private lastPersisted = new Map<HibernatingWebSocket, number>()
+  private messageWindows = new Map<HibernatingWebSocket, { start: number; count: number }>()
   private hydrated = false
   private poseOut = new ArrayBuffer(22)
   private poseOutView = new DataView(this.poseOut)
@@ -198,14 +215,27 @@ export class FactoryRoom {
     }
   }
 
+  // Tras hidratar, todos los sockets aceptados están en la caché: uno que no está ya se ha ido
   private getPeer(ws: HibernatingWebSocket): PeerAttachment | null {
     this.ensureHydrated()
-    let data = this.peersCache.get(ws) ?? null
-    if (!data) {
-      data = ws.deserializeAttachment() as PeerAttachment | null
-      if (data && typeof data.id === 'number') this.peersCache.set(ws, data)
+    return this.peersCache.get(ws) ?? null
+  }
+
+  private isFlooding(ws: HibernatingWebSocket, now: number): boolean {
+    const bucket = this.messageWindows.get(ws)
+    if (!bucket || now - bucket.start >= 1000) {
+      this.messageWindows.set(ws, { start: now, count: 1 })
+      return false
     }
-    return data
+    bucket.count++
+    return bucket.count > MAX_MESSAGES_PER_SECOND
+  }
+
+  private kick(ws: HibernatingWebSocket, code: number, reason: string) {
+    this.removePeer(ws)
+    try {
+      ws.close(code, reason)
+    } catch {}
   }
 
   private getPeers(): { ws: HibernatingWebSocket; data: PeerAttachment }[] {
@@ -242,14 +272,17 @@ export class FactoryRoom {
     const roomLabel = url.searchParams.get('roomLabel') || 'Pública 1'
     const isPublic = url.searchParams.get('isPublic') === '1'
     const shard = Number(url.searchParams.get('shard') || '1')
+    const ip = url.searchParams.get('ip') || 'unknown'
 
     const existing = this.getPeers()
     const pair = new WebSocketPair()
     const client = pair[0]
     const server = pair[1]
 
-    if (existing.length >= MAX_PLAYERS) {
+    const sameIp = isPublic ? existing.filter(({ data }) => data.ip === ip).length : 0
+    if (existing.length >= MAX_PLAYERS || sameIp >= MAX_PEERS_PER_IP) {
       server.accept()
+      server.addEventListener('error', () => {})
       const next = isPublic && shard < MAX_PUBLIC_SHARDS ? `hub-${shard + 1}` : null
       server.send(JSON.stringify({ t: 'full', room: roomId, next }))
       server.close(4001, 'Room full')
@@ -260,6 +293,7 @@ export class FactoryRoom {
     const usedNames = new Set(existing.map((p) => p.data.name))
     const peer: PeerAttachment = {
       id,
+      ip,
       name: randomSafeName(usedNames),
       color: sanitizeColor(url.searchParams.get('color')),
       x: 64.5,
@@ -330,10 +364,12 @@ export class FactoryRoom {
     const peer = this.getPeer(ws)
     if (!peer) return
 
+    const now = Date.now()
+    if (this.isFlooding(ws, now)) return this.kick(ws, 1008, 'Too many messages')
+
     // Trama binaria de posición (20 bytes cliente -> 22 bytes servidor)
     if (message instanceof ArrayBuffer) {
-      if (message.byteLength !== 20) return
-      const now = Date.now()
+      if (message.byteLength !== 20) return this.kick(ws, 1003, 'Invalid frame')
       if (now - peer.lastPoseAt < POSE_COOLDOWN_MS) return
 
       const view = new DataView(message)
@@ -382,16 +418,16 @@ export class FactoryRoom {
     }
 
     // Mensajes JSON poco frecuentes: emotes y cambio de perfil
-    if (typeof message !== 'string' || message.length > 256) return
+    if (typeof message !== 'string' || message.length > 256) return this.kick(ws, 1009, 'Message too big')
     let data: Record<string, unknown>
     try {
       data = JSON.parse(message)
     } catch {
-      return
+      return this.kick(ws, 1003, 'Invalid message')
     }
+    if (!data || typeof data !== 'object') return
 
     if (data.t === 'emote' && typeof data.e === 'string' && VALID_EMOTES.has(data.e)) {
-      const now = Date.now()
       if (now - peer.lastEmoteAt < EMOTE_COOLDOWN_MS) return
       peer.lastEmoteAt = now
       ws.serializeAttachment(peer)
@@ -401,8 +437,9 @@ export class FactoryRoom {
 
     if (data.t === 'profile') {
       const nextColor = typeof data.color === 'number' ? sanitizeColor(String(data.color)) : peer.color
-      if (nextColor === peer.color) return
+      if (nextColor === peer.color || now - (peer.lastProfileAt ?? 0) < PROFILE_COOLDOWN_MS) return
       peer.color = nextColor
+      peer.lastProfileAt = now
       ws.serializeAttachment(peer)
       this.broadcast(JSON.stringify({ t: 'profile', id: peer.id, color: peer.color }), ws)
     }
@@ -420,6 +457,7 @@ export class FactoryRoom {
     const peer = this.getPeer(ws)
     this.peersCache.delete(ws)
     this.lastPersisted.delete(ws)
+    this.messageWindows.delete(ws)
     if (!peer) return
     this.broadcast(JSON.stringify({ t: 'leave', id: peer.id }), ws)
   }
