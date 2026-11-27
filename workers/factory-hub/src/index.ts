@@ -11,6 +11,9 @@ const PROFILE_COOLDOWN_MS = 1000
 const MAX_MESSAGES_PER_SECOND = 40
 // Una misma IP no puede llenar una sala pública con bots; el resto de sus conexiones van a otra sala
 const MAX_PEERS_PER_IP = 4
+// Conexiones nuevas por IP y minuto. El binding CONNECT_LIMITER es aproximado (deja pasar ráfagas):
+// el límite estricto lo lleva un Durable Object por IP
+const MAX_CONNECTIONS_PER_MINUTE = 60
 const VALID_EMOTES = new Set(['wave', 'dance', 'celebrate', 'gg'])
 
 // Nombres aleatorios generados solo en servidor (seguros para todos los públicos)
@@ -59,6 +62,7 @@ const NAME_ADJS = [
 // Tipos mínimos del runtime de Cloudflare Workers / Durable Objects para no exigir dependencias extra
 interface Env {
   FACTORY_ROOM: DurableObjectNamespace
+  CONNECT_GUARD: DurableObjectNamespace
   CONNECT_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> }
   ALLOWED_ORIGINS?: string
 }
@@ -152,6 +156,18 @@ function isOriginAllowed(request: Request, env: Env): boolean {
   return allowed.includes('*') || allowed.includes(origin)
 }
 
+async function allowConnection(env: Env, ip: string): Promise<boolean> {
+  const { success } = await env.CONNECT_LIMITER.limit({ key: ip })
+  if (!success) return false
+  try {
+    const guard = env.CONNECT_GUARD.get(env.CONNECT_GUARD.idFromName(ip))
+    const response = await guard.fetch(new Request('https://guard/'))
+    return response.status === 204
+  } catch {
+    return false
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
@@ -175,8 +191,7 @@ export default {
     }
 
     const ip = request.headers.get('cf-connecting-ip') || 'unknown'
-    const { success } = await env.CONNECT_LIMITER.limit({ key: ip })
-    if (!success) {
+    if (!(await allowConnection(env, ip))) {
       return new Response('Too many connections', { status: 429, headers: { 'retry-after': '60' } })
     }
 
@@ -460,5 +475,21 @@ export class FactoryRoom {
     this.messageWindows.delete(ws)
     if (!peer) return
     this.broadcast(JSON.stringify({ t: 'leave', id: peer.id }), ws)
+  }
+}
+
+// Ventana fija de un minuto en memoria: si el objeto se descarga por inactividad, la ventana ya pasó
+export class ConnectGuard {
+  private windowStart = 0
+  private count = 0
+
+  fetch(): Response {
+    const now = Date.now()
+    if (now - this.windowStart >= 60_000) {
+      this.windowStart = now
+      this.count = 0
+    }
+    this.count++
+    return new Response(null, { status: this.count > MAX_CONNECTIONS_PER_MINUTE ? 429 : 204 })
   }
 }

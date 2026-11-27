@@ -26,6 +26,10 @@
       {
         "name": "FACTORY_ROOM",
         "class_name": "FactoryRoom"
+      },
+      {
+        "name": "CONNECT_GUARD",
+        "class_name": "ConnectGuard"
       }
     ]
   },
@@ -33,6 +37,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["FactoryRoom"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ConnectGuard"]
     }
   ]
 }
