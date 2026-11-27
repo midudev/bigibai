@@ -14,12 +14,12 @@
     "stores": "bun scripts/stores.ts"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "14.4.0",
+    "@astrojs/cloudflare": "14.4.9",
     "@astrojs/sitemap": "3.7.4",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.118.0",
     "@tailwindcss/vite": "4.3.3",
-    "astro": "7.4.0",
+    "astro": "7.4.13",
     "canvas-confetti": "1.9.4",
     "tailwindcss": "4.3.3",
     "three": "^0.187.0",
@@ -29,6 +29,6 @@
     "@types/canvas-confetti": "1.9.0",
     "@types/three": "^0.187.0",
     "typescript": "7.0.2",
-    "wrangler": "4.151.1"
+    "wrangler": "4.168.0"
   }
 }
