@@ -10,6 +10,7 @@ declare module 'cloudflare:workers' {
     MAGIC_LINK_IP_LIMITER: RateLimit
     COUPON_IP_LIMITER: RateLimit
     COUPON_USER_LIMITER: RateLimit
+    ACHIEVEMENT_USER_LIMITER: RateLimit
   }
 }
 

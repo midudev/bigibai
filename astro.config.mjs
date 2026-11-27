@@ -35,6 +35,8 @@ export default defineConfig({
     }),
   ],
   output: 'server',
+  // Las acciones solo reciben un email, un token de Turnstile, un código o un id de logro
+  security: { checkOrigin: true, actionBodySizeLimit: 16 * 1024 },
   // Se leen al ejecutar (secrets del Worker; en local, .env.local), así que no acaban en el bundle
   env: {
     schema: {

@@ -7,6 +7,7 @@ const LIMITERS = {
   magicLinkIp: 'MAGIC_LINK_IP_LIMITER',
   couponIp: 'COUPON_IP_LIMITER',
   couponUser: 'COUPON_USER_LIMITER',
+  achievementUser: 'ACHIEVEMENT_USER_LIMITER',
 } as const
 
 export type RateLimiter = keyof typeof LIMITERS

@@ -3,6 +3,7 @@ import { type APIRoute } from 'astro'
 import { CAMPAIGN } from '@/data/campaign'
 
 const allowedPaths = ['/dashboard', '/registro', '/']
+const CODE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 
 // Función para validar si una ruta es segura
 function isSafeRedirect(path: string): boolean {
@@ -24,6 +25,11 @@ export const GET: APIRoute = async ({ request, url, cookies, redirect }) => {
 
   if (!code) {
     return redirect('/registro?error=no_code')
+  }
+
+  // Código PKCE (UUID) o token_hash del email: lo que no tenga esa forma no llega a Supabase Auth
+  if (!CODE_PATTERN.test(code)) {
+    return redirect('/registro?error=auth_failed')
   }
 
   // Los enlaces del email llegan con type=otp: sin esto se podría seguir entrando con uno

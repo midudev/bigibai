@@ -20,6 +20,12 @@ function getClientIp(ctx: ActionAPIContext): string {
   return ctx.request.headers.get('cf-connecting-ip') || ctx.clientAddress || 'unknown'
 }
 
+async function assertAchievementRateLimit(userId: string) {
+  if (await checkRateLimit('achievementUser', userId)) return
+  console.warn('[RATE_LIMIT_BLOCK_ACHIEVEMENT]', { userId })
+  throw new ActionError({ code: 'TOO_MANY_REQUESTS', message: RATE_LIMIT_MESSAGE })
+}
+
 // Las mismas condiciones que la página de la casilla para mostrar el juego: la experiencia está
 // activa, alguna casilla con ese juego ya se ha abierto y el usuario ha validado algún calendario
 async function canPlayGame(
@@ -420,6 +426,8 @@ export const server = {
         })
       }
 
+      await assertAchievementRateLimit(user.id)
+
       const result = await grantAchievement(user.id, achievementId)
       if (!result.success) {
         throw new ActionError({
@@ -438,7 +446,7 @@ export const server = {
 
   grantGameAchievement: defineAction({
     input: z.object({
-      achievementId: z.string(),
+      achievementId: z.string().max(64),
     }),
     async handler({ achievementId }, ctx) {
       const user = ctx.locals.user
@@ -460,6 +468,8 @@ export const server = {
           message: 'Este logro no se consigue en un juego',
         })
       }
+
+      await assertAchievementRateLimit(user.id)
 
       if (
         !isAdmin(user.id) &&
